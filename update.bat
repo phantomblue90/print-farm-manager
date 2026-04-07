@@ -23,21 +23,26 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-cd ..
 
 npm run build
 if %errorlevel% neq 0 (
     echo ERROR: build failed.
+    cd ..
     pause
     exit /b 1
 )
+cd ..
 
-pm2 restart print-farm-manager
-if %errorlevel% neq 0 (
-    echo ERROR: pm2 restart failed. Is PM2 installed? Run: npm install -g pm2
-    pause
-    exit /b 1
-)
+echo Stopping server...
+rem NOTE: taskkill /IM node.exe stops ALL Node.js processes on this machine,
+rem not just the print farm server. This is fine on a dedicated farm machine,
+rem but if you are running other Node-based tools (e.g. other servers, CLI tools)
+rem at the same time, they will also be stopped. Restart them manually if needed.
+taskkill /F /IM node.exe 2>nul
+timeout /t 2 /nobreak >nul
+
+echo Starting server...
+start "" /MIN node server\index.js
 
 echo.
 echo Done! Print Farm Manager is up to date and running.
