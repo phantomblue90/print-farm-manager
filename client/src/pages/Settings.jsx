@@ -1,5 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
+const inputStyle = {
+  background: '#0f172a',
+  border: '1px solid #334155',
+  borderRadius: 6,
+  padding: '6px 10px',
+  color: '#e2e8f0',
+  fontSize: 13,
+  width: '100%',
+  boxSizing: 'border-box',
+};
+
 const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
 
 export default function Settings() {
@@ -8,6 +19,73 @@ export default function Settings() {
   const [error, setError] = useState(null);
   const [flaggedModels, setFlaggedModels] = useState({});
   const fileRef = useRef(null);
+
+  // Add single printer
+  const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', model: 'mk4s', group_name: '' });
+  const [addResult, setAddResult] = useState(null);
+  const [addError, setAddError] = useState(null);
+  const [adding, setAdding] = useState(false);
+
+  async function handleAddPrinter(e) {
+    e.preventDefault();
+    setAdding(true);
+    setAddResult(null);
+    setAddError(null);
+    try {
+      const res = await fetch('/api/printers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: addForm.name.trim(),
+          ip: addForm.ip.trim(),
+          api_key: addForm.api_key.trim(),
+          model: addForm.model,
+          group_name: addForm.group_name.trim() || null,
+          type: 'prusa',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Add failed');
+      setAddResult(data);
+      setAddForm({ name: '', ip: '', api_key: '', model: 'mk4s', group_name: '' });
+    } catch (err) {
+      setAddError(err.message);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  // Dispatch batch size setting
+  const [batchSize, setBatchSize] = useState('');
+  const [batchSizeSaved, setBatchSizeSaved] = useState(false);
+  const [batchSizeError, setBatchSizeError] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => {
+        if (data.dispatch_batch_size) setBatchSize(data.dispatch_batch_size);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleSaveBatchSize() {
+    setBatchSizeSaved(false);
+    setBatchSizeError(null);
+    try {
+      const res = await fetch('/api/settings/dispatch_batch_size', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: batchSize }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setBatchSizeSaved(true);
+      setTimeout(() => setBatchSizeSaved(false), 3000);
+    } catch (err) {
+      setBatchSizeError(err.message);
+    }
+  }
 
   const [alerts, setAlerts] = useState([]);
 
@@ -287,6 +365,141 @@ export default function Settings() {
               </div>
             )}
           </div>
+        )}
+      </section>
+
+      {/* Add Single Printer */}
+      <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Add Printer</h2>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+          Add a single printer directly without a CSV file.
+        </p>
+        <form onSubmit={handleAddPrinter}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Name *</label>
+              <input
+                value={addForm.name}
+                onChange={e => setAddForm(p => ({ ...p, name: e.target.value }))}
+                required
+                placeholder="MK4S_11"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>IP Address *</label>
+              <input
+                value={addForm.ip}
+                onChange={e => setAddForm(p => ({ ...p, ip: e.target.value }))}
+                required
+                placeholder="192.168.1.100"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>API Key *</label>
+              <input
+                value={addForm.api_key}
+                onChange={e => setAddForm(p => ({ ...p, api_key: e.target.value }))}
+                required
+                placeholder="xxxxxxxxxxxxxxxx"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Model *</label>
+              <select
+                value={addForm.model}
+                onChange={e => setAddForm(p => ({ ...p, model: e.target.value }))}
+                style={inputStyle}
+              >
+                {MODEL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Group (optional)</label>
+              <input
+                value={addForm.group_name}
+                onChange={e => setAddForm(p => ({ ...p, group_name: e.target.value }))}
+                placeholder="Rack A"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={adding}
+            style={{
+              background: adding ? '#1e40af' : '#2563eb',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '8px 18px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: adding ? 'not-allowed' : 'pointer',
+              opacity: adding ? 0.7 : 1,
+            }}
+          >
+            {adding ? 'Adding…' : 'Add Printer'}
+          </button>
+        </form>
+        {addError && (
+          <div style={{ marginTop: 14, background: '#7f1d1d', borderRadius: 6, padding: '10px 14px', color: '#fca5a5', fontSize: 13 }}>
+            {addError}
+          </div>
+        )}
+        {addResult && (
+          <div style={{ marginTop: 14, background: '#14532d', borderRadius: 6, padding: '10px 14px', color: '#4ade80', fontSize: 13 }}>
+            Printer <strong>{addResult.name}</strong> added (ID #{addResult.id}).
+          </div>
+        )}
+      </section>
+
+      {/* Dispatch Settings */}
+      <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Dispatch Settings</h2>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+          Control how many printers receive a file simultaneously when the scheduler sweeps.
+          Reduce this number if your network is saturated during large batch uploads — each batch
+          waits for all printers to reach <em>printing</em> before the next batch fires.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+              Printers per batch (1–100)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={batchSize}
+              onChange={e => setBatchSize(e.target.value)}
+              style={{ ...inputStyle, width: 80 }}
+            />
+          </div>
+          <button
+            onClick={handleSaveBatchSize}
+            style={{
+              background: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '8px 18px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              alignSelf: 'flex-end',
+            }}
+          >
+            Save
+          </button>
+          {batchSizeSaved && (
+            <span style={{ color: '#4ade80', fontSize: 13, alignSelf: 'flex-end', paddingBottom: 2 }}>Saved</span>
+          )}
+        </div>
+        {batchSizeError && (
+          <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 13 }}>{batchSizeError}</div>
         )}
       </section>
 

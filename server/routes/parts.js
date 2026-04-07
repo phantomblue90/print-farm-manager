@@ -22,10 +22,14 @@ module.exports = (db) => {
       return res.status(400).json({ error: 'project_id, name, and target_qty are required' });
     }
     const now = Date.now();
+    // Place the new part at the end of the project's sort order so it gets the lowest
+    // dispatch priority. The operator can drag it up if they want it printed sooner.
+    const maxRow = db.prepare('SELECT MAX(sort_order) AS max FROM parts WHERE project_id = ?').get(project_id);
+    const sortOrder = (maxRow?.max ?? -1) + 1;
     const result = db.prepare(`
-      INSERT INTO parts (project_id, name, target_qty, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(project_id, name, parseInt(target_qty, 10), now, now);
+      INSERT INTO parts (project_id, name, target_qty, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(project_id, name, parseInt(target_qty, 10), sortOrder, now, now);
     res.status(201).json(db.prepare('SELECT * FROM parts WHERE id = ?').get(result.lastInsertRowid));
   });
 

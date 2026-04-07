@@ -56,6 +56,108 @@ function createTestFile(filename) {
   return filePath;
 }
 
+describe('_uploadGCode — 409 UPLOAD_CONFLICT', () => {
+  test('throws UPLOAD_CONFLICT when PrusaLink DELETE returns 409', async () => {
+    const scheduler = makeScheduler();
+    const filename = `conflict_del_${Date.now()}.bgcode`;
+    createTestFile(filename);
+
+    axios.delete.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 409'), {
+        response: { status: 409 },
+      })
+    );
+
+    await expect(scheduler._uploadGCode(fakePrinter, { filename, filepath: filename }))
+      .rejects.toMatchObject({ code: 'UPLOAD_CONFLICT' });
+
+    // Should not have attempted the PUT when DELETE conflicted
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  test('throws UPLOAD_CONFLICT when PrusaLink PUT returns 409', async () => {
+    const scheduler = makeScheduler();
+    const filename = `conflict_put_${Date.now()}.bgcode`;
+    createTestFile(filename);
+
+    // DELETE succeeds, PUT returns 409 — destroy stream to avoid unhandled ENOENT after cleanup
+    axios.delete.mockResolvedValueOnce({});
+    axios.put.mockImplementationOnce((_url, data) => {
+      if (data && typeof data.destroy === 'function') {
+        data.on('error', () => {});
+        data.destroy();
+      }
+      return Promise.reject(
+        Object.assign(new Error('Request failed with status code 409'), { response: { status: 409 } })
+      );
+    });
+
+    await expect(scheduler._uploadGCode(fakePrinter, { filename, filepath: filename }))
+      .rejects.toMatchObject({ code: 'UPLOAD_CONFLICT' });
+  });
+
+  test('does not throw UPLOAD_CONFLICT for non-409 PUT errors', async () => {
+    const scheduler = makeScheduler();
+    const filename = `timeout_err_${Date.now()}.bgcode`;
+    createTestFile(filename);
+
+    axios.delete.mockResolvedValueOnce({});
+    // No .response — simulates a network-level failure, not an HTTP 409
+    axios.put.mockImplementationOnce((_url, data) => {
+      if (data && typeof data.destroy === 'function') {
+        data.on('error', () => {});
+        data.destroy();
+      }
+      return Promise.reject(new Error('ECONNRESET'));
+    });
+
+    await expect(scheduler._uploadGCode(fakePrinter, { filename, filepath: filename }))
+      .rejects.toMatchObject({ message: 'ECONNRESET' });
+  });
+});
+
+describe('_checkIfPrinting', () => {
+  test('returns true when PrusaLink reports PRINTING', async () => {
+    const scheduler = makeScheduler();
+    axios.get.mockResolvedValueOnce({ data: { printer: { state: 'PRINTING' } } });
+
+    const result = await scheduler._checkIfPrinting(fakePrinter);
+    expect(result).toBe(true);
+  });
+
+  test('returns true when PrusaLink reports PAUSED', async () => {
+    const scheduler = makeScheduler();
+    axios.get.mockResolvedValueOnce({ data: { printer: { state: 'PAUSED' } } });
+
+    const result = await scheduler._checkIfPrinting(fakePrinter);
+    expect(result).toBe(true);
+  });
+
+  test('returns false when PrusaLink reports IDLE', async () => {
+    const scheduler = makeScheduler();
+    axios.get.mockResolvedValueOnce({ data: { printer: { state: 'IDLE' } } });
+
+    const result = await scheduler._checkIfPrinting(fakePrinter);
+    expect(result).toBe(false);
+  });
+
+  test('returns false when printer is unreachable (network error)', async () => {
+    const scheduler = makeScheduler();
+    axios.get.mockRejectedValueOnce(new Error('ETIMEDOUT'));
+
+    const result = await scheduler._checkIfPrinting(fakePrinter);
+    expect(result).toBe(false);
+  });
+
+  test('is case-insensitive — lowercase state still matches', async () => {
+    const scheduler = makeScheduler();
+    axios.get.mockResolvedValueOnce({ data: { printer: { state: 'printing' } } });
+
+    const result = await scheduler._checkIfPrinting(fakePrinter);
+    expect(result).toBe(true);
+  });
+});
+
 describe('_uploadGCode — GCODE_MISSING', () => {
   test('throws with code GCODE_MISSING when file does not exist on disk', async () => {
     const scheduler = makeScheduler();

@@ -3,11 +3,102 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 const MODEL_OPTIONS = ['mk4', 'mk4s', 'c1', 'c1l', 'xl'];
 
 const PROJECT_STATUS = {
-  draft:     { bg: '#1f2937', text: '#9ca3af', label: 'Draft' },
-  active:    { bg: '#166534', text: '#4ade80', label: 'Active' },
-  paused:    { bg: '#713f12', text: '#fcd34d', label: 'Paused' },
-  completed: { bg: '#14532d', text: '#86efac', label: 'Completed' },
+  draft:     { bg: '#1f2937', text: '#9ca3af', dot: '#6b7280', label: 'Draft' },
+  active:    { bg: '#166534', text: '#4ade80', dot: '#4ade80', label: 'Active' },
+  paused:    { bg: '#713f12', text: '#fcd34d', dot: '#fcd34d', label: 'Paused' },
+  completed: { bg: '#14532d', text: '#86efac', dot: '#86efac', label: 'Completed' },
 };
+
+// Dropdown options per project status.
+// 'action' is either a status string ('active', 'paused') or a special verb ('complete', 'reactivate').
+const STATUS_MENU = {
+  draft:     [{ label: 'Activate',        action: 'active' }],
+  active:    [{ label: 'Pause project',   action: 'paused' },
+              { label: 'Mark complete',   action: 'complete', danger: true }],
+  paused:    [{ label: 'Resume project',  action: 'active' },
+              { label: 'Mark complete',   action: 'complete', danger: true }],
+  completed: [{ label: 'Re-activate',     action: 'reactivate' }],
+};
+
+function StatusDropdown({ project, onTransition }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const meta    = PROJECT_STATUS[project.status] || PROJECT_STATUS.draft;
+  const options = STATUS_MENU[project.status] || [];
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          background: meta.bg,
+          color: meta.text,
+          border: `1px solid ${meta.text}50`,
+          borderRadius: 6,
+          padding: '4px 10px',
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          lineHeight: 1.4,
+        }}
+      >
+        <span style={{ color: meta.dot, fontSize: 8, lineHeight: 1 }}>●</span>
+        {meta.label}
+        <span style={{ fontSize: 10, opacity: 0.8 }}>▾</span>
+      </button>
+
+      {open && options.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 4px)',
+          left: 0,
+          background: '#1e2433',
+          border: '1px solid #334155',
+          borderRadius: 6,
+          overflow: 'hidden',
+          zIndex: 200,
+          minWidth: 170,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
+        }}>
+          {options.map(opt => (
+            <button
+              key={opt.action}
+              onClick={() => { setOpen(false); onTransition(opt.action); }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: 'none',
+                border: 'none',
+                color: opt.danger ? '#fca5a5' : '#e2e8f0',
+                padding: '9px 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+                borderTop: opt.danger ? '1px solid #1f2937' : 'none',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#0f172a'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const PART_STATUS = {
   open:   { bg: '#1e3a5f', text: '#60a5fa', label: 'Open' },
@@ -383,6 +474,22 @@ export default function Projects() {
     if (selectedId != null) fetchDetail(selectedId);
   }, [selectedId, fetchDetail]);
 
+  async function moveProject(projectId, direction) {
+    const idx = projects.findIndex(p => p.id === projectId);
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= projects.length) return;
+
+    const reordered = [...projects];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    setProjects(reordered);
+
+    await fetch('/api/projects/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: reordered.map(p => p.id) }),
+    });
+  }
+
   async function createProject() {
     if (!newName.trim()) return;
     const res = await fetch('/api/projects', {
@@ -396,13 +503,48 @@ export default function Projects() {
     }
   }
 
-  async function updateProjectStatus(id, status) {
+  async function handleStatusTransition(action) {
+    const id = detailProject.id;
+
+    if (action === 'complete') {
+      const partCount = parts.filter(p => p.status === 'open').length;
+      const msg = partCount > 0
+        ? `Mark "${detailProject.name}" complete? ${partCount} open part(s) will be closed and any queued jobs cancelled.`
+        : `Mark "${detailProject.name}" complete?`;
+      if (!window.confirm(msg)) return;
+
+      await fetch(`/api/projects/${id}/complete`, { method: 'POST' });
+      await Promise.all([fetchDetail(id), fetchProjects()]);
+      return;
+    }
+
+    if (action === 'reactivate') {
+      if (!window.confirm(
+        `Re-activate "${detailProject.name}"? Parts with remaining qty will be reopened and dispatch will resume.`
+      )) return;
+
+      const res  = await fetch(`/api/projects/${id}/reactivate`, { method: 'POST' });
+      const data = await res.json();
+
+      if (data.nothing_to_reopen) {
+        alert(
+          'All parts are already at their target qty — nothing to dispatch.\n\n' +
+          'Adjust part quantities first, then re-activate.'
+        );
+        return;
+      }
+
+      await Promise.all([fetchDetail(id), fetchProjects()]);
+      return;
+    }
+
+    // Standard transitions: 'active' (activate/resume) or 'paused'
     await fetch(`/api/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status: action }),
     });
-    if (status === 'active') {
+    if (action === 'active') {
       fetch('/api/scheduler/dispatch', { method: 'POST' }).catch(() => {});
     }
     await Promise.all([fetchDetail(id), fetchProjects()]);
@@ -528,14 +670,38 @@ export default function Projects() {
             return (
               <div
                 key={p.id}
-                onClick={() => setSelectedId(p.id)}
                 style={{
                   background: '#1e2433', border: '1px solid #2d3748', borderRadius: 8,
-                  padding: '12px 16px', cursor: 'pointer',
+                  padding: '12px 16px',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                {/* Priority arrows — stop propagation so clicks don't open the project */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => moveProject(p.id, 'up')}
+                    disabled={projects.indexOf(p) === 0}
+                    title="Increase priority"
+                    style={{
+                      background: 'none', border: 'none', padding: 0, fontSize: 10, lineHeight: 1,
+                      color: projects.indexOf(p) === 0 ? '#1f2937' : '#475569',
+                      cursor: projects.indexOf(p) === 0 ? 'default' : 'pointer',
+                    }}
+                  >▲</button>
+                  <button
+                    onClick={() => moveProject(p.id, 'down')}
+                    disabled={projects.indexOf(p) === projects.length - 1}
+                    title="Decrease priority"
+                    style={{
+                      background: 'none', border: 'none', padding: 0, fontSize: 10, lineHeight: 1,
+                      color: projects.indexOf(p) === projects.length - 1 ? '#1f2937' : '#475569',
+                      cursor: projects.indexOf(p) === projects.length - 1 ? 'default' : 'pointer',
+                    }}
+                  >▼</button>
+                </div>
+
+                {/* Name + description — clicking here navigates */}
+                <div style={{ minWidth: 0, flex: 1, cursor: 'pointer' }} onClick={() => setSelectedId(p.id)}>
                   <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {p.name}
                   </div>
@@ -543,8 +709,9 @@ export default function Projects() {
                     <div style={{ color: '#64748b', fontSize: 12 }}>{p.description}</div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ background: s.bg, color: s.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0, cursor: 'pointer' }} onClick={() => setSelectedId(p.id)}>
+                  <span style={{ background: s.bg, color: s.text, border: `1px solid ${s.text}40`, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                     {s.label}
                   </span>
                   <span style={{ color: '#475569', fontSize: 13 }}>→</span>
@@ -559,8 +726,6 @@ export default function Projects() {
 
   // ─── Detail view ─────────────────────────────────────────────────────────────
   if (!detailProject) return <p style={{ color: '#64748b' }}>Loading…</p>;
-
-  const projSt = PROJECT_STATUS[detailProject.status] || PROJECT_STATUS.draft;
 
   return (
     <div>
@@ -595,33 +760,7 @@ export default function Projects() {
             >✎</button>
           </>
         )}
-        <span style={{ background: projSt.bg, color: projSt.text, borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-          {projSt.label}
-        </span>
-        {detailProject.status === 'draft' && (
-          <button
-            onClick={() => updateProjectStatus(detailProject.id, 'active')}
-            style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '5px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Activate
-          </button>
-        )}
-        {detailProject.status === 'active' && (
-          <button
-            onClick={() => updateProjectStatus(detailProject.id, 'paused')}
-            style={{ background: '#713f12', color: '#fcd34d', border: 'none', borderRadius: 4, padding: '5px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Pause
-          </button>
-        )}
-        {detailProject.status === 'paused' && (
-          <button
-            onClick={() => updateProjectStatus(detailProject.id, 'active')}
-            style={{ background: '#166534', color: '#4ade80', border: 'none', borderRadius: 4, padding: '5px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Resume
-          </button>
-        )}
+        <StatusDropdown project={detailProject} onTransition={handleStatusTransition} />
       </div>
 
       {/* Parts */}

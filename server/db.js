@@ -87,6 +87,15 @@ try { db.exec('ALTER TABLE printers ADD COLUMN job_name TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE printers ADD COLUMN job_progress REAL'); } catch (_) {}
 try { db.exec('ALTER TABLE printers ADD COLUMN job_time_remaining INTEGER'); } catch (_) {}
 
+// Settings table — key/value store for operator-configurable options
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+} catch (_) {}
+// Seed defaults (INSERT OR IGNORE so existing values are never overwritten)
+try {
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('dispatch_batch_size', '10')").run();
+} catch (_) {}
+
 // Make jobs.gcode_id nullable so gcodes can be deleted after jobs have run
 const gcodeIdCol = db.prepare("PRAGMA table_info(jobs)").all().find(c => c.name === 'gcode_id');
 if (gcodeIdCol && gcodeIdCol.notnull === 1) {

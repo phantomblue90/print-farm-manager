@@ -7,12 +7,12 @@ const JobScheduler   = require('./scheduler');
 const notifications  = require('./notifications');
 
 const printersRouter  = require('./routes/printers')(db);
-const projectsRouter  = require('./routes/projects')(db);
 const partsRouter     = require('./routes/parts')(db);
 const gcodesRouter    = require('./routes/gcodes')(db);
 const jobsRouter      = require('./routes/jobs')(db);
 const backupRouter    = require('./routes/backup')(db);
 const dashboardRouter = require('./routes/dashboard')(db);
+const settingsRouter  = require('./routes/settings')(db);
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -21,12 +21,12 @@ app.use(express.json());
 
 // API routes
 app.use('/api/printers',  printersRouter);
-app.use('/api/projects',  projectsRouter);
 app.use('/api/parts',     partsRouter);
 app.use('/api/gcodes',    gcodesRouter);
 app.use('/api/jobs',      jobsRouter);
 app.use('/api/backup',    backupRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/settings',  settingsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -55,6 +55,9 @@ const server = app.listen(PORT, () => {
 
   const poller    = new PrinterPoller(db);
   const scheduler = new JobScheduler(db, poller);
+
+  // Mount projects router here so it has access to the scheduler for complete/reactivate
+  app.use('/api/projects', require('./routes/projects')(db, scheduler));
 
   scheduler.start();
   poller.start();

@@ -36,17 +36,19 @@ print-farm-manager/
 │   ├── scheduler.js      # Job dispatch engine (EventEmitter)
 │   └── routes/
 │       ├── printers.js   # CRUD + CSV import
-│       ├── projects.js   # Project CRUD
-│       ├── parts.js      # Part CRUD + completed_qty state machine
+│       ├── projects.js   # Project CRUD + complete/reactivate/reorder
+│       ├── parts.js      # Part CRUD + completed_qty state machine + reorder
 │       ├── gcodes.js     # G-code upload, parse-filename, delete
-│       └── jobs.js       # Job listing, filtering, cancel
+│       ├── jobs.js       # Job listing, filtering, cancel
+│       ├── settings.js   # Key/value operator settings (dispatch_batch_size)
+│       └── dashboard.js  # TV command center — single-endpoint fleet summary
 ├── client/
 │   ├── src/
 │   │   ├── App.jsx       # Layout + router
 │   │   ├── main.jsx      # React root
 │   │   └── pages/
 │   │       ├── Fleet.jsx     # Live printer grid
-│   │       ├── Settings.jsx  # CSV import UI
+│   │       ├── Settings.jsx  # CSV import, add printer, dispatch batch size
 │   │       ├── Dashboard.jsx # Fleet summary
 │   │       ├── Projects.jsx  # Project/Part/G-code management
 │   │       └── Jobs.jsx      # Job queue table
@@ -60,8 +62,8 @@ print-farm-manager/
 |---|---|---|
 | 1 | Complete | Scaffold, DB schema, printer registry, polling, live Fleet UI |
 | 2 | Complete | Job scheduling, dispatch, Part/Project/G-code management |
-| 3 | In Progress | Error handling, operator safety workflows, UI improvements — core work done; notifications outstanding |
-| 4 | In Progress | Hardening, retry logic, 50+ printer performance — batching, retries, cold-start safety done; broader stress testing outstanding |
+| 3 | Complete | Error handling, operator safety workflows, UI improvements |
+| 4 | Complete | Hardening, retry logic, 409 conflict handling, configurable batch size, post-failure recovery |
 | 5 | Planned | Mobile-responsive polish |
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for full product spec.

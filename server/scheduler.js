@@ -54,7 +54,9 @@ class JobScheduler extends EventEmitter {
     );
   }
 
-  async _sweepInBatches(printers, batchSize = 10) {
+  async _sweepInBatches(printers) {
+    const setting = this.db.prepare("SELECT value FROM settings WHERE key = 'dispatch_batch_size'").get();
+    const batchSize = setting ? Math.max(1, parseInt(setting.value, 10) || 10) : 10;
     for (let i = 0; i < printers.length; i += batchSize) {
       const batch = printers.slice(i, i + batchSize);
       console.log(`[scheduler] Dispatching batch ${Math.floor(i / batchSize) + 1} — ${batch.length} printer(s)`);
@@ -79,8 +81,8 @@ class JobScheduler extends EventEmitter {
   }
 
   // Poll jobs table until all given job IDs are printing or terminal (failed/cancelled).
-  // Gives up after 3 minutes.
-  _waitForBatch(jobIds, pollIntervalMs = 3000, timeoutMs = 180000) {
+  // Gives up after 10 minutes — large files on slow networks can take several minutes to transfer.
+  _waitForBatch(jobIds, pollIntervalMs = 3000, timeoutMs = 600000) {
     return new Promise((resolve) => {
       const start = Date.now();
       const placeholders = jobIds.map(() => '?').join(',');
@@ -133,7 +135,7 @@ class JobScheduler extends EventEmitter {
       WHERE parts.status    = 'open'
         AND projects.status = 'active'
         AND gcodes.printer_model = ?
-      ORDER BY projects.created_at ASC, parts.sort_order ASC, parts.created_at ASC
+      ORDER BY projects.priority ASC, projects.created_at ASC, parts.sort_order ASC, parts.created_at ASC
       LIMIT 1
     `).get(printer.model);
 
@@ -171,6 +173,10 @@ class JobScheduler extends EventEmitter {
     // Upload with retries. A transient network timeout (common when many printers
     // start simultaneously) will self-heal. Only after all attempts are exhausted
     // does the printer get re-held for operator attention.
+    //
+    // 409 CONFLICT from PrusaLink means a file transfer is already in progress on the printer
+    // (typically a previous attempt that timed out on our side but continued on the printer).
+    // We wait 60 s before retrying in that case — much longer than the 5 s used for other errors.
     const MAX_RETRIES = 2;
     let lastErr = null;
 
@@ -184,13 +190,29 @@ class JobScheduler extends EventEmitter {
         // Missing file won't be fixed by retrying — fail immediately
         if (err.code === 'GCODE_MISSING') break;
         if (attempt <= MAX_RETRIES) {
-          console.warn(`[scheduler] ${printer.name} upload attempt ${attempt}/${MAX_RETRIES + 1} failed (${err.message}) — retrying in 5s`);
-          await new Promise(r => setTimeout(r, 5000));
+          const isConflict = err.code === 'UPLOAD_CONFLICT';
+          const waitMs = isConflict ? 60000 : 5000;
+          console.warn(
+            `[scheduler] ${printer.name} upload attempt ${attempt}/${MAX_RETRIES + 1} failed ` +
+            `(${err.message}) — retrying in ${waitMs / 1000}s`
+          );
+          await new Promise(r => setTimeout(r, waitMs));
         }
       }
     }
 
     if (lastErr) {
+      // Before giving up, check whether the printer is actually printing.
+      // This handles the case where our HTTP request timed out but the printer
+      // received the file and started the job anyway. If it is printing, treat
+      // the upload as a success so the job is tracked correctly.
+      const isActuallyPrinting = await this._checkIfPrinting(printer);
+      if (isActuallyPrinting) {
+        this.db.prepare(`UPDATE jobs SET status = 'printing', started_at = ? WHERE id = ?`).run(Date.now(), jobId);
+        console.log(`[scheduler] ${printer.name} upload appeared to fail but printer is printing — job ${jobId} recovered`);
+        return jobId;
+      }
+
       this.db.prepare(`UPDATE jobs SET status = 'failed' WHERE id = ?`).run(jobId);
       // Re-hold the printer — upload failed, operator must inspect before next dispatch.
       this.db.prepare('UPDATE printers SET is_held = 1 WHERE id = ?').run(printer.id);
@@ -214,7 +236,9 @@ class JobScheduler extends EventEmitter {
   }
 
   async _uploadGCode(printer, gcode) {
-    // Delete any existing copy on the USB drive — ignore 404 if it's not there
+    // Delete any existing copy on the USB drive — ignore 404 if it's not there.
+    // A 409 means a file transfer is already in progress on the printer; throw
+    // UPLOAD_CONFLICT so the caller can apply a longer retry delay.
     try {
       await axios.delete(
         `http://${printer.ip}/api/v1/files/usb/${encodeURIComponent(gcode.filename)}`,
@@ -222,6 +246,12 @@ class JobScheduler extends EventEmitter {
       );
       console.log(`[scheduler] Deleted existing ${gcode.filename} from ${printer.name}`);
     } catch (err) {
+      if (err.response?.status === 409) {
+        throw Object.assign(
+          new Error(`409 Conflict on pre-delete — file transfer likely still in progress on ${printer.name}`),
+          { code: 'UPLOAD_CONFLICT' }
+        );
+      }
       if (!err.response || err.response.status !== 404) {
         console.warn(`[scheduler] Pre-delete warning for ${printer.name}: ${err.message}`);
       }
@@ -240,21 +270,47 @@ class JobScheduler extends EventEmitter {
     const fileStream = fs.createReadStream(gcodeFullPath);
     const stat = fs.statSync(gcodeFullPath);
 
-    await axios.put(
-      `http://${printer.ip}/api/v1/files/usb/${encodeURIComponent(gcode.filename)}`,
-      fileStream,
-      {
-        headers: {
-          'X-Api-Key': printer.api_key,
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': stat.size,
-          'Print-After-Upload': '1',
-        },
-        timeout: 120000,
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
+    try {
+      await axios.put(
+        `http://${printer.ip}/api/v1/files/usb/${encodeURIComponent(gcode.filename)}`,
+        fileStream,
+        {
+          headers: {
+            'X-Api-Key': printer.api_key,
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': stat.size,
+            'Print-After-Upload': '1',
+          },
+          timeout: 300000, // 5 minutes — large files on slow networks
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        }
+      );
+    } catch (err) {
+      if (err.response?.status === 409) {
+        throw Object.assign(
+          new Error(`409 Conflict on upload — file transfer likely still in progress on ${printer.name}`),
+          { code: 'UPLOAD_CONFLICT' }
+        );
       }
-    );
+      throw err;
+    }
+  }
+
+  // Check PrusaLink directly to see if the printer is currently printing.
+  // Used after an upload failure to detect the case where our request timed out
+  // but the printer received the file and started the job anyway.
+  async _checkIfPrinting(printer) {
+    try {
+      const response = await axios.get(`http://${printer.ip}/api/v1/status`, {
+        headers: { 'X-Api-Key': printer.api_key },
+        timeout: 8000,
+      });
+      const state = (response.data?.printer?.state || '').toUpperCase();
+      return state === 'PRINTING' || state === 'PAUSED';
+    } catch (_) {
+      return false;
+    }
   }
 
   // ─── Finished handling ───────────────────────────────────────────────────────

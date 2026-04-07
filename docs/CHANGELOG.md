@@ -2,6 +2,95 @@
 
 ---
 
+## 2026-04-07 — Project priority ordering (9 new tests, 69 total)
+
+### Scheduler respects project priority (`server/scheduler.js`)
+Changed `ORDER BY projects.created_at ASC` to `ORDER BY projects.priority ASC, projects.created_at ASC` in the candidate dispatch query. The existing `priority INTEGER DEFAULT 0` column was already in the schema but unused. All new projects default to `0` (equal priority); `created_at` remains the tiebreaker so existing behaviour is preserved when no reorder has been done.
+
+### `PUT /api/projects/reorder` endpoint (`server/routes/projects.js`)
+New endpoint, same pattern as `PUT /api/parts/reorder`. Accepts `{ ids: [...] }` ordered array; index position becomes the `priority` value for each project. Registered before `/:id` so Express doesn't match the string `"reorder"` as an id. `GET /api/projects` now returns projects in `priority ASC, created_at ASC` order so the list view reflects dispatch order.
+
+### Up/down arrows in project list view (`client/src/pages/Projects.jsx`)
+Priority arrows (▲ / ▼) added to each project row in the list view, same visual pattern as part ordering. Arrow clicks call `moveProject()` which optimistically reorders the local state then persists via `PUT /api/projects/reorder`. Click events on the arrows stop propagation so they don't navigate into the project.
+
+### Tests (`server/tests/projects-reorder.test.js`, 9 tests)
+- `PUT /api/projects/reorder`: 400 on missing/empty ids; priority assigned by index; `GET` returns projects in the new order.
+- Scheduler candidate query (run directly against in-memory DB): lower priority number wins over higher number regardless of creation order; equal priorities fall back to `created_at`; paused projects are skipped entirely; no candidate returned when all projects are paused; `parts.sort_order` tiebreaks correctly within a project.
+
+**Files changed:** `server/scheduler.js`, `server/routes/projects.js`, `client/src/pages/Projects.jsx`, `server/tests/projects-reorder.test.js` (new)
+
+---
+
+## 2026-04-07 — Test suite expansion (60 tests total)
+
+### New test files
+- **`server/tests/settings.test.js`** (6 tests) — `GET /api/settings` returns defaults; `PUT /api/settings/dispatch_batch_size` saves valid values and rejects out-of-range, non-numeric, empty, and unknown-key inputs.
+- **`server/tests/parts-sort.test.js`** (6 tests) — consecutive `POST /api/parts` calls assign `sort_order` 0, 1, 2 …; sort_order is independent per project; `GET` returns parts in ascending sort_order; 400 on missing fields.
+- **`server/tests/projects-status.test.js`** (11 tests) — `POST /complete`: 404/400 guards, sets project to completed, closes all open parts, cancels only queued/uploading jobs for open parts (not closed parts, not finished jobs). `POST /reactivate`: 404 guard, sets project active, reopens only closed parts with remaining qty, leaves fully-done parts closed, returns `nothing_to_reopen` without changing status when all parts are at target.
+
+### Extended `server/tests/scheduler-file.test.js` (8 new tests)
+- `UPLOAD_CONFLICT` thrown when PrusaLink DELETE returns 409 (PUT never called)
+- `UPLOAD_CONFLICT` thrown when PrusaLink PUT returns 409
+- Non-409 PUT errors propagate with their original message (not wrapped as UPLOAD_CONFLICT)
+- `_checkIfPrinting` returns true for PRINTING, true for PAUSED, false for IDLE, false on network error, and is case-insensitive
+
+### Route refactor for testability (`server/routes/projects.js`, `server/index.js`)
+`complete` and `reactivate` handlers moved from the `app.listen()` callback in `index.js` into `server/routes/projects.js`, which now accepts an optional `scheduler` argument. `index.js` mounts the projects router inside the listen callback so it has scheduler access at runtime. Tests pass `null` for scheduler — no live poller dependency.
+
+**Files changed:** `server/tests/settings.test.js` (new), `server/tests/parts-sort.test.js` (new), `server/tests/projects-status.test.js` (new), `server/tests/scheduler-file.test.js`, `server/routes/projects.js`, `server/index.js`
+
+---
+
+## 2026-04-07 — Project status dropdown (Option C), force-complete, re-activate with guardrails
+
+### Project status as a clickable badge dropdown (`client/src/pages/Projects.jsx`, `server/index.js`)
+Replaced the separate Active badge + Pause/Resume/Activate action buttons with a single clickable status badge (`● Active ▾`). Clicking it opens a context menu with the valid transitions for the current state:
+
+| State | Menu options |
+|---|---|
+| Draft | Activate |
+| Active | Pause project · Mark complete |
+| Paused | Resume project · Mark complete |
+| Completed | Re-activate |
+
+"Mark complete" is styled in red to signal it is a consequential action and is separated from the primary option by a divider line.
+
+### Force-complete a project (`POST /api/projects/:id/complete`, `server/index.js`)
+Operators can now mark a project complete before all parts hit their target qty. The endpoint closes all open parts and cancels any `queued` or `uploading` jobs for those parts. A confirmation dialog shows how many open parts will be affected before proceeding.
+
+### Re-activate a completed project with guardrails (`POST /api/projects/:id/reactivate`, `server/index.js`)
+Completed projects can be re-activated. The endpoint finds closed parts where `completed_qty < target_qty` and reopens them, then sets the project to `active` and sweeps idle printers. Guardrail: if all parts are already at or above their target qty (nothing to reopen), the server returns `{ nothing_to_reopen: true }` and the UI shows an informational alert directing the operator to adjust part quantities first.
+
+**Files changed:** `client/src/pages/Projects.jsx`, `server/index.js`
+
+---
+
+## 2026-04-07 — Dispatch hardening, 409 handling, configurable batch size, add-printer UI, part sort fix
+
+### Configurable dispatch batch size (`server/routes/settings.js`, `server/db.js`, `server/scheduler.js`, `client/src/pages/Settings.jsx`)
+Added a `settings` table (key/value) with a `dispatch_batch_size` key (default 10). A new `GET/PUT /api/settings` endpoint exposes it. `_sweepInBatches` reads the value from the DB at sweep time so changes take effect without a server restart. A "Dispatch Settings" panel in the Settings UI lets operators adjust the value (1–100) and save it live.
+
+### 409 Conflict handling during upload (`server/scheduler.js`)
+PrusaLink returns HTTP 409 when a file transfer is already in progress (e.g. a previous upload attempt timed out on our side but was still running on the printer). The scheduler now:
+- Throws `UPLOAD_CONFLICT` (instead of a generic error) when the pre-upload DELETE or the PUT itself returns 409.
+- Waits **60 seconds** before retrying on `UPLOAD_CONFLICT` vs the usual 5 seconds for other transient errors, giving the in-progress transfer time to complete.
+
+### Post-failure printer status check (`server/scheduler.js`)
+After exhausting all upload retries, the scheduler now calls PrusaLink directly (`_checkIfPrinting`) before marking the job as `failed`. If the printer is already `PRINTING` or `PAUSED` — meaning the file transfer succeeded but our HTTP request timed out — the job is recovered to `printing` status instead of being marked failed. This prevents the "3 failed jobs but still printing" scenario and ensures the Fleet view can show the correct filename on the printer badge.
+
+### Upload timeout increased 2 min → 5 min; batch wait timeout increased 3 min → 10 min (`server/scheduler.js`)
+Large files on congested farm networks can take several minutes to transfer. The axios upload timeout is now 300 s (was 120 s) and `_waitForBatch` gives up after 600 s (was 180 s), so the next batch does not fire prematurely while slow printers are still receiving files.
+
+### Add single printer from Settings UI (`client/src/pages/Settings.jsx`)
+A new "Add Printer" form in Settings lets operators add a printer by filling in Name, IP, API Key, Model, and optional Group — no CSV required. Posts to the existing `POST /api/printers` endpoint.
+
+### New part added at bottom of project (`server/routes/parts.js`)
+When a part is created, `sort_order` is now set to `MAX(sort_order) + 1` for that project instead of defaulting to 0. New parts always land at the lowest-priority position; operators can drag them up via the existing reorder UI.
+
+**Files changed:** `server/db.js`, `server/routes/settings.js` (new), `server/routes/parts.js`, `server/scheduler.js`, `server/index.js`, `client/src/pages/Settings.jsx`
+
+---
+
 ## 2026-04-06 — TV Command Center Dashboard
 
 ### New Dashboard page (`client/src/pages/Dashboard.jsx`, `server/routes/dashboard.js`)
