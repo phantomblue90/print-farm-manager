@@ -217,11 +217,12 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
   }
 
+  // Bambu requires a full SD card path — FTP root maps to /sdcard/ on the printer.
   conn.client.publish(`device/${printer.serial_number}/request`, JSON.stringify({
     print: {
       sequence_id: '0',
       command:     'gcode_file',
-      param:       onPrinterFilename,
+      param:       `/sdcard/${onPrinterFilename}`,
     },
   }));
 
