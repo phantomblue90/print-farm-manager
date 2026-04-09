@@ -1,7 +1,7 @@
 {
   "name": "print-farm-manager",
   "version": "1.0.0",
-  "description": "Centralized print farm management for Prusa fleet via PrusaLink",
+  "description": "Centralized print farm management for multi-brand 3D printer fleets",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",

@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers installing Print Farm Manager on a dedicated machine that sits on the same local network as your Prusa fleet. Steps that differ between **Windows** and **macOS** are clearly labelled. Where instructions are the same on both platforms, no label is shown.
+This guide covers installing Print Farm Manager on a dedicated machine that sits on the same local network as your printer fleet. Steps that differ between **Windows** and **macOS** are clearly labelled. Where instructions are the same on both platforms, no label is shown.
 
 ---
 

@@ -1,6 +1,6 @@
 # Print Farm Manager — Documentation
 
-A locally-hosted web app for managing a 50+ printer Prusa fleet via PrusaLink. Replaces manual USB job distribution with centralized status monitoring and automated job dispatch.
+A locally-hosted web app for managing a multi-brand 3D printer farm. Replaces manual USB job distribution with centralized status monitoring and automated job dispatch. Supports Prusa (PrusaLink), Elegoo Centauri (SDCP), and Bambu (MQTT) printers.
 
 ## Quick Start
 

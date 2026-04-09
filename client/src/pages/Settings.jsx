@@ -766,7 +766,7 @@ export default function Settings() {
       <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, maxWidth: 640 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Polling</h2>
         <p style={{ color: '#64748b', fontSize: 13 }}>
-          All printers are polled every <strong style={{ color: '#e2e8f0' }}>15 seconds</strong> via the PrusaLink API.
+          All printers are polled every <strong style={{ color: '#e2e8f0' }}>15 seconds</strong> via their connector API.
           Polling runs concurrently — all printers are queried in parallel each tick.
           Unreachable printers show as <span style={{ color: '#6b7280' }}>OFFLINE</span> and do not affect other printers.
         </p>

@@ -25,7 +25,7 @@ async function inspectPrinter(printer) {
     const res  = await fetch(`/api/printers/${printer.id}/raw-status`);
     const data = await res.json();
     if (data.error) {
-      console.warn('PrusaLink error:', data.error);
+      console.warn('Printer error:', data.error);
     } else {
       console.log('Full raw response:', data.raw);
       console.log('printer.state:', data.raw?.printer?.state);
@@ -121,7 +121,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
   return (
     <div
       onClick={() => inspectPrinter(printer)}
-      title="Click to inspect raw PrusaLink status in console"
+      title="Click to inspect raw printer status in console"
       style={{
         background: needsConfirmation ? '#1c2a1c' : '#1e2433',
         border: `1px solid ${needsConfirmation ? '#15803d' : style.bg}`,

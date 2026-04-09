@@ -192,7 +192,7 @@ module.exports = (db) => {
     res.json({ success: true, job_id: job.id });
   });
 
-  // GET /api/printers/:id/raw-status — proxy to PrusaLink, returns raw response for debugging
+  // GET /api/printers/:id/raw-status — calls the printer's driver, returns raw response for debugging
   router.get('/:id/raw-status', async (req, res) => {
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
     if (!printer) return res.status(404).json({ error: 'Printer not found' });

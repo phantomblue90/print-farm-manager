@@ -1,6 +1,6 @@
 # Print Farm Manager
 
-Locally-hosted web app for managing a 50+ printer Prusa fleet via PrusaLink.
+Locally-hosted web app for managing a multi-brand 3D printer farm. Supports Prusa (PrusaLink), Elegoo Centauri (SDCP), and Bambu printers from a single interface.
 
 ## Quick Start
 
@@ -13,11 +13,12 @@ npm run dev
 - API server: http://localhost:3000
 - Web UI: http://localhost:5173
 
-## Phase 1
+## Features
 
-- Fleet view with live PrusaLink status (15-second poll)
+- Fleet view with live printer status (15-second poll)
 - Printer registry with CSV import
-- Settings page for managing printers
+- Multi-brand support: Prusa, Elegoo, Bambu
+- Settings page for managing printers and models
 
 ## CSV Import Format
 
