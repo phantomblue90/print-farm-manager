@@ -20,14 +20,22 @@ Adds full support for the Elegoo Centauri Carbon FDM printer via the SDCP WebSoc
 - `sdcp` (npm) — Node.js SDCP protocol client by blakejrobinson. Handles WebSocket framing, UUID-matched request/response, and reconnection. Replaces the need for `ws` + raw SDCP implementation.
 
 ### State mapping (SDCP status codes → canonical)
-| SDCP code | Canonical |
-|---|---|
-| 0 | IDLE |
-| 1 | PRINTING |
-| 2 | PAUSED |
-| 3 | FINISHED (stopped — requires operator confirmation) |
-| 4 | FINISHED |
-| 16+ | ERROR |
+
+Codes were refined through real hardware testing on a Centauri Carbon. Several firmware states fire during normal FDM startup that have no SDCP spec documentation.
+
+| SDCP code | Canonical | Notes |
+|---|---|---|
+| 0 | IDLE | |
+| 1 | PRINTING | |
+| 2 | PAUSED | |
+| 3 | FINISHED | Stopped — triggers operator confirmation |
+| 4 | FINISHED | Normal completion |
+| 13 | PRINTING | Active print (layer incrementing) — observed on Centauri Carbon firmware |
+| 16 | PRINTING | Preparing/preheating/homing before print starts |
+| 21 | PRINTING | Startup/init state, file loaded but CurrentLayer=0 |
+| any other | UNKNOWN | Logged for future mapping; does not hold the printer |
+
+Unknown codes return `UNKNOWN` (not `ERROR`) so undocumented transient firmware states don't incorrectly hold printers. Any new codes observed will surface in the server log with full PrintInfo for classification.
 
 ---
 

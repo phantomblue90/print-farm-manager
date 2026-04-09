@@ -37,12 +37,13 @@ Both brands map their native states to a shared internal set. The rest of the sy
 
 | Canonical | PrusaLink source | SDCP source |
 |---|---|---|
-| `IDLE` | `IDLE` | Not printing, cause code 0 |
-| `PRINTING` | `PRINTING` | Active print job |
-| `FINISHED` | `FINISHED` | Print completed |
-| `PAUSED` | `PAUSED` | Paused |
-| `ERROR` | `ERROR`, `ATTENTION` | Temperature / jam / homing fault |
+| `IDLE` | `IDLE` | Code 0 |
+| `PRINTING` | `PRINTING` | Codes 1, 13, 16, 21 (several FDM startup states — see CHANGELOG) |
+| `FINISHED` | `FINISHED` | Codes 3 (stopped) and 4 (complete) |
+| `PAUSED` | `PAUSED` | Code 2 |
+| `ERROR` | `ERROR`, `ATTENTION` | Not currently generated; reserved for confirmed fault codes |
 | `OFFLINE` | Timeout | WebSocket unreachable |
+| `UNKNOWN` | — | Unrecognised SDCP code; logged for classification, does not hold printer |
 
 ---
 
