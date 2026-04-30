@@ -129,6 +129,15 @@ Returns the updated printer object.
 
 Removes the printer from active duty (`is_active = 0`). It will no longer be polled or receive jobs. Returns the updated printer object.
 
+### `POST /api/printers/:id/complete-and-decommission`
+
+Operator confirms the last print was successful, then takes the machine offline for maintenance instead of releasing it to the job queue.
+
+- **Normal case** (job already in `finished` status): `_handleFinished` already credited `completed_qty`; nothing is re-credited. The printer is simply decommissioned.
+- **Missed-finish case** (job still in `printing` status): credits `completed_qty` by `parts_per_plate`, marks the job `finished`, and closes the Part / Project if targets are met — same logic as `set-ready`, but ending in decommission rather than dispatch.
+
+Returns the updated printer object.
+
 ### `POST /api/printers/:id/recommission`
 
 Returns a decommissioned printer to active duty (`is_active = 1`). Returns the updated printer object.

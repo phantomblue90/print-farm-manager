@@ -328,25 +328,28 @@ export default function Fleet() {
   async function decommission(printerId) {
     const printer = printers.find(p => p.id === printerId);
 
+    let goodPrint = false;
+
     // Step 1 — if not mid-print, ask about the last print's outcome before anything else.
-    // This catches the case where a print physically failed but the system recorded it as finished.
     if (printer?.status !== 'PRINTING') {
-      const printFailed = window.confirm(
-        `Before decommissioning ${printer?.name} — did the last print FAIL?\n\n` +
-        `OK     → Yes, it failed — undo the count and decommission\n` +
-        `Cancel → No / not applicable — proceed to decommission only`
+      const printSucceeded = window.confirm(
+        `Before decommissioning ${printer?.name} — was the last print successful?\n\n` +
+        `OK     → Yes, it succeeded — credit the count and decommission\n` +
+        `Cancel → No / unknown — mark as failed and decommission`
       );
 
-      if (printFailed) {
+      if (!printSucceeded) {
+        // Print bad/unknown — mark-job-failure handles decommission internally.
         const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
-        if (res.ok) {
-          // mark-job-failure already decommissions — nothing more to do.
-          fetchPrinters();
-          return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          alert(`Failed: ${body.error || res.status}`);
         }
-        // No finished job found (e.g. pure hardware failure with no completed print).
-        // Fall through to the plain decommission confirm below.
+        fetchPrinters();
+        return;
       }
+
+      goodPrint = true;
     }
 
     // Step 2 — confirm the decommission itself.
@@ -356,7 +359,8 @@ export default function Fleet() {
       `and will require a manual recommission before it can run again.`
     )) return;
 
-    const decommRes = await fetch(`/api/printers/${printerId}/decommission`, { method: 'POST' });
+    const endpoint = goodPrint ? 'complete-and-decommission' : 'decommission';
+    const decommRes = await fetch(`/api/printers/${printerId}/${endpoint}`, { method: 'POST' });
     if (!decommRes.ok) {
       const body = await decommRes.json().catch(() => ({}));
       alert(`Decommission failed: ${body.error || decommRes.status}`);

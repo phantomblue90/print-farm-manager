@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-04-30 — Decommission flow: "print good" vs "print bad" choice
+
+Decommissioning a printer no longer assumes the last print was bad. The operator is now asked whether the print was successful before the machine goes offline.
+
+**Problem:** The only way to take a printer offline after a successful print was to hit the green "good print" button (which credits the count and releases the machine to the queue) and then immediately decommission — a two-step dance with no clean single-action path.
+
+**Solution:** The existing decommission dialog flow was updated. Step 1 now asks "Was the last print successful?" instead of "Did the last print fail?":
+- **OK (succeeded)** → credits the print (if not already credited) and decommissions — machine goes offline for maintenance with the count intact.
+- **Cancel (failed/unknown)** → calls `mark-job-failure` as before, undoing the count and decommissioning.
+
+A new backend endpoint (`POST /api/printers/:id/complete-and-decommission`) handles the good-print path. For the normal FINISHED case the count is already credited by `_handleFinished`; for missed-finish cases (job still shows `printing`) it credits qty before decommissioning.
+
+### Changes
+
+**`server/routes/printers.js`** — new `POST /:id/complete-and-decommission` endpoint  
+**`client/src/pages/Fleet.jsx`** — updated `decommission()` dialog wording and routing  
+**`docs/api.md`** — documented the new endpoint
+
+---
+
 ## 2026-04-27 — Klipper driver bug fixes (validated on Voron hardware)
 
 Three bugs found and fixed while testing the Phase 6C Klipper driver against a real Voron printer.

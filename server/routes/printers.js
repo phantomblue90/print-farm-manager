@@ -171,6 +171,48 @@ module.exports = (db) => {
     res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
   });
 
+  // POST /api/printers/:id/complete-and-decommission — operator confirmed print was good; credit if
+  // needed (missed-finish), then take machine offline for maintenance instead of releasing to queue.
+  router.post('/:id/complete-and-decommission', (req, res) => {
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+
+    const now = Date.now();
+
+    // Missed-finish case: job still shows 'printing' because the server didn't see the FINISHED
+    // event. Credit qty now, same as set-ready would do before dispatching the next job.
+    const printingJob = db.prepare(`
+      SELECT * FROM jobs WHERE printer_id = ? AND status = 'printing'
+      ORDER BY started_at DESC LIMIT 1
+    `).get(printer.id);
+
+    if (printingJob) {
+      db.prepare(`UPDATE jobs SET status = 'finished', finished_at = ? WHERE id = ?`).run(now, printingJob.id);
+      db.prepare(`UPDATE parts SET completed_qty = completed_qty + ?, updated_at = ? WHERE id = ?`)
+        .run(printingJob.parts_per_plate, now, printingJob.part_id);
+
+      const part = db.prepare('SELECT * FROM parts WHERE id = ?').get(printingJob.part_id);
+      if (part.completed_qty >= part.target_qty) {
+        db.prepare(`UPDATE parts SET status = 'closed', updated_at = ? WHERE id = ?`).run(now, part.id);
+        db.prepare(`UPDATE jobs SET status = 'cancelled' WHERE part_id = ? AND status = 'queued'`).run(part.id);
+        const openCount = db.prepare(
+          `SELECT COUNT(*) AS count FROM parts WHERE project_id = ? AND status = 'open'`
+        ).get(part.project_id).count;
+        if (openCount === 0) {
+          db.prepare(`UPDATE projects SET status = 'completed', updated_at = ? WHERE id = ?`).run(now, part.project_id);
+          console.log(`[printers] Project ${part.project_id} completed`);
+        }
+      }
+      console.log(`[printers] ${printer.name} missed-finish credited — decommissioning for maintenance`);
+    }
+    // Normal case: job already in 'finished' status was credited by _handleFinished — nothing to undo or re-credit.
+
+    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
+    events.insert(printer.id, 'decommission', req.body?.note ?? 'operator confirmed successful print — taken offline for maintenance');
+    console.log(`[printers] ${printer.name} decommissioned after confirmed good print`);
+    res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
+  });
+
   // POST /api/printers/:id/recommission — handled in server/index.js (needs scheduler access)
 
   // POST /api/printers/:id/mark-job-failure — mark last finished job as failed, undo completed_qty
