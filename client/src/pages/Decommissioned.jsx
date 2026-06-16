@@ -79,13 +79,20 @@ export default function Decommissioned() {
   }
 
   async function recommission(printer) {
-    const ok = await confirm({
+    const result = await confirm({
       title: `Recommission ${printer.name}?`,
       message: 'Only proceed if the machine has been fully inspected and confirmed safe to run. It will return to the active fleet and be eligible to receive jobs immediately.',
       confirmLabel: 'Recommission',
+      prompt: 'What was done to fix this printer?',
+      promptRequired: true,
     });
-    if (!ok) return;
-    await fetch(`/api/printers/${printer.id}/recommission`, { method: 'POST' });
+    if (!result) return;
+    const { text: fixNote } = result;
+    await fetch(`/api/printers/${printer.id}/recommission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: fixNote }),
+    });
     showToast(`${printer.name} recommissioned`, 'success');
     fetchPrinters();
   }

@@ -210,8 +210,9 @@ module.exports = (db) => {
     }
     // Normal case: job already in 'finished' status was credited by _handleFinished — nothing to undo or re-credit.
 
-    db.prepare('UPDATE printers SET is_active = 0, is_held = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
-    events.insert(printer.id, 'decommission', req.body?.note ?? 'operator confirmed successful print — taken offline for maintenance');
+    const decommNote = req.body?.note ?? null;
+    db.prepare('UPDATE printers SET is_active = 0, is_held = 0, decommissioned_at = ?, decommission_note = ? WHERE id = ?').run(now, decommNote, printer.id);
+    events.insert(printer.id, 'decommission', decommNote ?? 'operator confirmed successful print — taken offline for maintenance');
     console.log(`[printers] ${printer.name} decommissioned after confirmed good print`);
     res.json(db.prepare('SELECT * FROM printers WHERE id = ?').get(printer.id));
   });
@@ -264,8 +265,9 @@ module.exports = (db) => {
       // printer spent all night in an UNKNOWN status so _handleFinished never fired).
       // Operator intent is clear: take the machine offline regardless.
       const now = Date.now();
-      db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
-      events.insert(printer.id, 'job_failed', 'No tracked job — printer decommissioned for investigation');
+      const noJobNote = req.body?.note ?? null;
+      db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ?, decommission_note = ? WHERE id = ?').run(now, noJobNote, printer.id);
+      events.insert(printer.id, 'job_failed', noJobNote ?? 'No tracked job — printer decommissioned for investigation');
       console.log(`[printers] ${printer.name} decommissioned (no tracked job to mark failed)`);
       return res.json({ success: true, job_id: null });
     }
@@ -298,10 +300,14 @@ module.exports = (db) => {
 
     // Decommission the printer — a failed print requires investigation before it can run again.
     // The operator must explicitly recommission it when the machine is confirmed safe.
-    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ? WHERE id = ?').run(now, printer.id);
+    const failNote = req.body?.note ?? null;
+    db.prepare('UPDATE printers SET is_active = 0, decommissioned_at = ?, decommission_note = ? WHERE id = ?').run(now, failNote, printer.id);
 
     const failedPart = db.prepare('SELECT name FROM parts WHERE id = ?').get(job.part_id);
-    events.insert(printer.id, 'job_failed', `Job ${job.id} — part: ${failedPart?.name ?? 'unknown'}`);
+    const eventNote = failNote
+      ? `Job ${job.id} — part: ${failedPart?.name ?? 'unknown'} — ${failNote}`
+      : `Job ${job.id} — part: ${failedPart?.name ?? 'unknown'}`;
+    events.insert(printer.id, 'job_failed', eventNote);
 
     console.log(`[printers] Job ${job.id} marked failed — ${printer.name} decommissioned pending investigation`);
     res.json({ success: true, job_id: job.id });

@@ -394,19 +394,26 @@ export default function Fleet() {
 
   async function decommission(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    const choice = await confirm({
+    const result = await confirm({
       title: `Decommission ${printer?.name}`,
       message: 'Was the last print successful?\n\nThis machine will be removed from the active fleet and will require a manual recommission before running again.',
       cancelLabel: 'Cancel',
+      prompt: 'Reason for decommissioning',
+      promptRequired: true,
       actions: [
         { label: 'Print succeeded — credit & decommission', value: 'success', variant: 'success' },
         { label: 'Print failed — discard & decommission',   value: 'failure', variant: 'danger'  },
       ],
     });
-    if (!choice) return;
+    if (!result) return;
+    const { value: choice, text: reason } = result;
 
     if (choice === 'failure') {
-      const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+      const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: reason }),
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         showToast(`Failed: ${body.error || res.status}`, 'error');
@@ -416,7 +423,11 @@ export default function Fleet() {
     }
 
     // choice === 'success'
-    const res = await fetch(`/api/printers/${printerId}/complete-and-decommission`, { method: 'POST' });
+    const res = await fetch(`/api/printers/${printerId}/complete-and-decommission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: reason }),
+    });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       showToast(`Decommission failed: ${body.error || res.status}`, 'error');
@@ -426,14 +437,21 @@ export default function Fleet() {
 
   async function badPrint(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    const ok = await confirm({
+    const result = await confirm({
       title: `Mark Bad Print — ${printer?.name}`,
       message: 'This will undo the completed quantity, reopen the part if it was closed, and decommission the printer pending investigation.\n\nRecommission the printer manually once you have confirmed it is safe to run.',
       confirmLabel: 'Mark as Failed',
+      prompt: 'Reason for failure',
+      promptRequired: true,
       danger: true,
     });
-    if (!ok) return;
-    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+    if (!result) return;
+    const { text: reason } = result;
+    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: reason }),
+    });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       showToast(`Failed to mark bad print: ${body.error || res.status}`, 'error');
@@ -445,14 +463,21 @@ export default function Fleet() {
 
   async function uploadFailed(printerId) {
     const printer = printers.find(p => p.id === printerId);
-    const ok = await confirm({
+    const result = await confirm({
       title: `Confirm Upload Failure — ${printer?.name}`,
       message: 'This confirms the print never started. No completed quantity will be deducted. The printer will be decommissioned pending investigation.\n\nRecommission the printer manually when it is ready to run again.',
       confirmLabel: 'Confirm Upload Failed',
+      prompt: 'Notes / reason',
+      promptRequired: true,
       danger: true,
     });
-    if (!ok) return;
-    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, { method: 'POST' });
+    if (!result) return;
+    const { text: reason } = result;
+    const res = await fetch(`/api/printers/${printerId}/mark-job-failure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: reason }),
+    });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       showToast(`Failed to mark upload failure: ${body.error || res.status}`, 'error');
