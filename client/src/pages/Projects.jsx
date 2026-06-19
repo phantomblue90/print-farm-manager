@@ -148,13 +148,15 @@ function GcodeUploadPanel({ part, onUploaded }) {
   const [amsSlot, setAmsSlot]       = useState('');
   const [availableGroups, setAvailableGroups] = useState([]);
   const [selectedGroups, setSelectedGroups]   = useState([]);  // [] = all groups
-  const [filaments, setFilaments] = useState({ materials: [], colors: [] });
+  const [filamentTypes, setFilamentTypes]   = useState([]);
+  const [filamentColors, setFilamentColors] = useState([]);
   const [requiredMaterial, setRequiredMaterial] = useState('');
   const [requiredColor, setRequiredColor]       = useState('');
 
   useEffect(() => {
     fetch('/api/models').then(r => r.json()).then(setModelOptions).catch(() => {});
-    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
+    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -310,26 +312,26 @@ function GcodeUploadPanel({ part, onUploaded }) {
       {/* Targeting — material, color, groups */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Targeting:</span>
-        {filaments.materials.length > 0 ? (
+        {filamentTypes.length > 0 ? (
           <select
             value={requiredMaterial}
             onChange={e => setRequiredMaterial(e.target.value)}
             style={{ ...inputSx, width: 140, fontSize: 12 }}
           >
-            <option value="" disabled>Select material</option>
-            {filaments.materials.map(m => <option key={m} value={m}>{m}</option>)}
+            <option value="">Any material</option>
+            {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
         ) : (
-          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials configured on printers</span>
+          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials in library</span>
         )}
-        {filaments.colors.length > 0 && (
+        {filamentColors.length > 0 && (
           <select
             value={requiredColor}
             onChange={e => setRequiredColor(e.target.value)}
             style={{ ...inputSx, width: 130, fontSize: 12 }}
           >
             <option value="">Any color</option>
-            {filaments.colors.map(c => <option key={c} value={c}>{c}</option>)}
+            {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
         )}
         {availableGroups.length > 0 && (
@@ -366,7 +368,8 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
   const [selectedGroups, setSelectedGroups]   = useState(() => {
     try { return gc.allowed_groups ? JSON.parse(gc.allowed_groups) : []; } catch (_) { return []; }
   });
-  const [filaments, setFilaments] = useState({ materials: [], colors: [] });
+  const [filamentTypes, setFilamentTypes]   = useState([]);
+  const [filamentColors, setFilamentColors] = useState([]);
   const [reqMaterial, setReqMaterial] = useState(gc.required_material || '');
   const [reqColor, setReqColor]       = useState(gc.required_color || '');
 
@@ -381,7 +384,8 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
   useEffect(() => {
     fetch(`/api/printers/groups?model=${encodeURIComponent(gc.printer_model)}`)
       .then(r => r.json()).then(setAvailableGroups).catch(() => {});
-    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
+    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
   }, [gc.printer_model]);
 
   function toggleGroup(g) {
@@ -505,26 +509,26 @@ function GcodeEstimateRow({ gc, onDelete, onSaved }) {
       {/* Targeting row */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Targeting:</span>
-        {filaments.materials.length > 0 ? (
+        {filamentTypes.length > 0 ? (
           <select
             value={reqMaterial}
             onChange={e => setReqMaterial(e.target.value)}
             style={{ ...inputSx, width: 140, fontSize: 12 }}
           >
-            <option value="" disabled>Select material</option>
-            {filaments.materials.map(m => <option key={m} value={m}>{m}</option>)}
+            <option value="">Any material</option>
+            {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
         ) : (
-          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials on printers</span>
+          <span style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No materials in library</span>
         )}
-        {filaments.colors.length > 0 && (
+        {filamentColors.length > 0 && (
           <select
             value={reqColor}
             onChange={e => setReqColor(e.target.value)}
             style={{ ...inputSx, width: 130, fontSize: 12 }}
           >
             <option value="">Any color</option>
-            {filaments.colors.map(c => <option key={c} value={c}>{c}</option>)}
+            {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
         )}
         {availableGroups.length > 0 && (

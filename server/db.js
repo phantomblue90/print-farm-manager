@@ -147,6 +147,22 @@ try {
   }
 } catch (_) {}
 
+// Filament library — canonical lists managed in Settings
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS filament_types (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT NOT NULL UNIQUE
+  )`);
+} catch (_) {}
+
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS filament_colors (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    name      TEXT NOT NULL UNIQUE,
+    hex_color TEXT
+  )`);
+} catch (_) {}
+
 // Settings table — key/value store for operator-configurable options
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);

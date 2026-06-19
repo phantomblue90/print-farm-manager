@@ -88,25 +88,28 @@ export default function PrinterDetail() {
   const [nameError, setNameError]     = useState(null);
   const [renaming, setRenaming]       = useState(false);
   const [models, setModels]           = useState([]);
-  const [filaments, setFilaments]     = useState({ materials: [], colors: [] });
+  const [filamentTypes, setFilamentTypes]   = useState([]);
+  const [filamentColors, setFilamentColors] = useState([]);
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailsDraft, setDetailsDraft]     = useState({});
   const [detailsError, setDetailsError]     = useState(null);
   const [savingDetails, setSavingDetails]   = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [printerRes, eventsRes, statsRes, modelsRes, filamentsRes] = await Promise.all([
+    const [printerRes, eventsRes, statsRes, modelsRes, typesRes, colorsRes] = await Promise.all([
       fetch(`/api/printers/${id}`),
       fetch(`/api/printers/${id}/events`),
       fetch(`/api/printers/${id}/jobs/stats`),
       fetch('/api/models'),
-      fetch('/api/printers/filaments'),
+      fetch('/api/filaments/types'),
+      fetch('/api/filaments/colors'),
     ]);
-    if (printerRes.ok)   setPrinter(await printerRes.json());
-    if (eventsRes.ok)    setEvents(await eventsRes.json());
-    if (statsRes.ok)     setStats(await statsRes.json());
-    if (modelsRes.ok)    setModels(await modelsRes.json());
-    if (filamentsRes.ok) setFilaments(await filamentsRes.json());
+    if (printerRes.ok)  setPrinter(await printerRes.json());
+    if (eventsRes.ok)   setEvents(await eventsRes.json());
+    if (statsRes.ok)    setStats(await statsRes.json());
+    if (modelsRes.ok)   setModels(await modelsRes.json());
+    if (typesRes.ok)    setFilamentTypes(await typesRes.json());
+    if (colorsRes.ok)   setFilamentColors(await colorsRes.json());
     setLoading(false);
   }, [id]);
 
@@ -392,31 +395,27 @@ export default function PrinterDetail() {
               </label>
               <label style={detailLabelStyle}>
                 Loaded Material
-                <input
-                  list="filament-materials"
+                <select
                   value={detailsDraft.loaded_material}
                   onChange={e => setDetailsDraft(d => ({ ...d, loaded_material: e.target.value }))}
                   disabled={savingDetails}
-                  placeholder="e.g. PLA"
-                  style={detailInputStyle}
-                />
-                <datalist id="filament-materials">
-                  {filaments.materials.map(m => <option key={m} value={m} />)}
-                </datalist>
+                  style={{ ...detailInputStyle, cursor: 'pointer' }}
+                >
+                  <option value="">— none —</option>
+                  {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                </select>
               </label>
               <label style={detailLabelStyle}>
                 Loaded Color
-                <input
-                  list="filament-colors"
+                <select
                   value={detailsDraft.loaded_color}
                   onChange={e => setDetailsDraft(d => ({ ...d, loaded_color: e.target.value }))}
                   disabled={savingDetails}
-                  placeholder="e.g. Black"
-                  style={detailInputStyle}
-                />
-                <datalist id="filament-colors">
-                  {filaments.colors.map(c => <option key={c} value={c} />)}
-                </datalist>
+                  style={{ ...detailInputStyle, cursor: 'pointer' }}
+                >
+                  <option value="">— none —</option>
+                  {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
               </label>
             </div>
             {detailsError && (

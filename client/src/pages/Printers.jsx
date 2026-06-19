@@ -63,7 +63,8 @@ export default function Printers() {
 
   // Bulk-selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [filaments, setFilaments]     = useState({ materials: [], colors: [] });
+  const [filamentTypes, setFilamentTypes]   = useState([]);
+  const [filamentColors, setFilamentColors] = useState([]);
   const [bulkMaterial, setBulkMaterial] = useState('');
   const [bulkColor, setBulkColor]       = useState('');
   const [applying, setApplying]         = useState(false);
@@ -84,7 +85,8 @@ export default function Printers() {
 
   useEffect(() => {
     fetchPrinters();
-    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
+    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
   }, [fetchPrinters]);
 
   function persistCollapsed(next) {
@@ -148,8 +150,6 @@ export default function Printers() {
       })
     ));
     await fetchPrinters();
-    // Refresh filament suggestions so newly entered values appear next time
-    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
     setApplying(false);
     clearSelection();
   }
@@ -278,30 +278,22 @@ export default function Printers() {
             Clear
           </button>
           <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Set:</span>
-          <div style={{ position: 'relative' }}>
-            <input
-              list="bulk-materials"
-              value={bulkMaterial}
-              onChange={e => setBulkMaterial(e.target.value)}
-              placeholder="Material (e.g. PLA)"
-              style={bulkInputSx}
-            />
-            <datalist id="bulk-materials">
-              {filaments.materials.map(m => <option key={m} value={m} />)}
-            </datalist>
-          </div>
-          <div style={{ position: 'relative' }}>
-            <input
-              list="bulk-colors"
-              value={bulkColor}
-              onChange={e => setBulkColor(e.target.value)}
-              placeholder="Color (e.g. Black)"
-              style={bulkInputSx}
-            />
-            <datalist id="bulk-colors">
-              {filaments.colors.map(c => <option key={c} value={c} />)}
-            </datalist>
-          </div>
+          <select
+            value={bulkMaterial}
+            onChange={e => setBulkMaterial(e.target.value)}
+            style={bulkInputSx}
+          >
+            <option value="">Material…</option>
+            {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+          </select>
+          <select
+            value={bulkColor}
+            onChange={e => setBulkColor(e.target.value)}
+            style={bulkInputSx}
+          >
+            <option value="">Color…</option>
+            {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
           <button
             onClick={applyBulk}
             disabled={!canApply || applying}

@@ -42,12 +42,90 @@ export default function Settings() {
   // Add single printer
   // Printer models — fetched from DB, used throughout this page
   const [allModels, setAllModels] = useState([]);
-  const [filaments, setFilaments] = useState({ materials: [], colors: [] });
+  const [filamentTypes, setFilamentTypes] = useState([]);   // [{id, name}]
+  const [filamentColors, setFilamentColors] = useState([]); // [{id, name, hex_color}]
   const fetchModels = useCallback(() => {
     fetch('/api/models').then(r => r.json()).then(setAllModels).catch(() => {});
-    fetch('/api/printers/filaments').then(r => r.json()).then(setFilaments).catch(() => {});
+    fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
+    fetch('/api/filaments/colors').then(r => r.json()).then(setFilamentColors).catch(() => {});
   }, []);
   useEffect(() => { fetchModels(); }, [fetchModels]);
+
+  // Filament Library management
+  const [typeForm, setTypeForm] = useState({ name: '' });
+  const [typeFormError, setTypeFormError] = useState(null);
+  const [typeDeleteError, setTypeDeleteError] = useState({});
+
+  async function handleAddType(e) {
+    e.preventDefault();
+    setTypeFormError(null);
+    try {
+      const res = await fetch('/api/filaments/types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: typeForm.name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add type');
+      setTypeForm({ name: '' });
+      fetchModels();
+      showToast('Filament type added');
+    } catch (err) {
+      setTypeFormError(err.message);
+    }
+  }
+
+  async function handleDeleteType(id, name) {
+    setTypeDeleteError(prev => ({ ...prev, [id]: null }));
+    try {
+      const res = await fetch(`/api/filaments/types/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete');
+      fetchModels();
+      showToast(`"${name}" removed`);
+    } catch (err) {
+      setTypeDeleteError(prev => ({ ...prev, [id]: err.message }));
+    }
+  }
+
+  const [colorForm, setColorForm] = useState({ name: '', hex_color: '' });
+  const [colorFormError, setColorFormError] = useState(null);
+  const [colorDeleteError, setColorDeleteError] = useState({});
+
+  async function handleAddColor(e) {
+    e.preventDefault();
+    setColorFormError(null);
+    try {
+      const res = await fetch('/api/filaments/colors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: colorForm.name,
+          hex_color: colorForm.hex_color || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add color');
+      setColorForm({ name: '', hex_color: '' });
+      fetchModels();
+      showToast('Filament color added');
+    } catch (err) {
+      setColorFormError(err.message);
+    }
+  }
+
+  async function handleDeleteColor(id, name) {
+    setColorDeleteError(prev => ({ ...prev, [id]: null }));
+    try {
+      const res = await fetch(`/api/filaments/colors/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete');
+      fetchModels();
+      showToast(`"${name}" removed`);
+    } catch (err) {
+      setColorDeleteError(prev => ({ ...prev, [id]: err.message }));
+    }
+  }
 
   const [addForm, setAddForm] = useState({ name: '', ip: '', api_key: '', serial_number: '', model: '', group_name: '', type: 'prusa', loaded_material: '', loaded_color: '' });
   const [addResult, setAddResult] = useState(null);
@@ -531,30 +609,26 @@ export default function Settings() {
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Material *</label>
-              <input
-                list="settings-materials"
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Material</label>
+              <select
                 value={addForm.loaded_material}
                 onChange={e => setAddForm(p => ({ ...p, loaded_material: e.target.value }))}
-                placeholder="PLA"
                 style={inputStyle}
-              />
-              <datalist id="settings-materials">
-                {filaments.materials.map(m => <option key={m} value={m} />)}
-              </datalist>
+              >
+                <option value="">— none —</option>
+                {filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Color *</label>
-              <input
-                list="settings-colors"
+              <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Loaded Color</label>
+              <select
                 value={addForm.loaded_color}
                 onChange={e => setAddForm(p => ({ ...p, loaded_color: e.target.value }))}
-                placeholder="Black"
                 style={inputStyle}
-              />
-              <datalist id="settings-colors">
-                {filaments.colors.map(c => <option key={c} value={c} />)}
-              </datalist>
+              >
+                <option value="">— none —</option>
+                {filamentColors.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
             </div>
           </div>
           <button
@@ -673,6 +747,150 @@ export default function Settings() {
         {modelFormError && (
           <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 13 }}>{modelFormError}</div>
         )}
+      </section>
+
+      {/* Filament Library */}
+      <section style={{ background: '#1e2433', borderRadius: 10, padding: 20, marginBottom: 24, maxWidth: 640 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Filament Library</h2>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>
+          Define the filament types and colors available in your farm. Printers and G-codes select from these lists.
+        </p>
+
+        {/* Filament Types */}
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginBottom: 10 }}>Types</h3>
+        {filamentTypes.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+            <thead>
+              <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 8px' }}>Name</th>
+                <th style={{ padding: '4px 8px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filamentTypes.map(t => (
+                <tr key={t.id} style={{ borderBottom: '1px solid #1a2030' }}>
+                  <td style={{ padding: '6px 8px', color: '#e2e8f0' }}>{t.name}</td>
+                  <td style={{ padding: '6px 8px' }}>
+                    <button
+                      onClick={() => handleDeleteType(t.id, t.name)}
+                      style={{ background: 'none', border: '1px solid #7f1d1d', borderRadius: 4, color: '#f87171', fontSize: 12, padding: '2px 8px', cursor: 'pointer' }}
+                    >
+                      Delete
+                    </button>
+                    {typeDeleteError[t.id] && (
+                      <span style={{ color: '#fca5a5', fontSize: 12, marginLeft: 8 }}>{typeDeleteError[t.id]}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {filamentTypes.length === 0 && (
+          <p style={{ color: '#475569', fontSize: 13, marginBottom: 12 }}>No types yet. Add your first below.</p>
+        )}
+        <form onSubmit={handleAddType} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 24 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Type name *</label>
+            <input
+              value={typeForm.name}
+              onChange={e => setTypeForm(p => ({ ...p, name: e.target.value }))}
+              required
+              placeholder="e.g. PLA, PETG, ASA"
+              style={inputStyle}
+            />
+          </div>
+          <button
+            type="submit"
+            style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            Add Type
+          </button>
+        </form>
+        {typeFormError && <div style={{ marginTop: -16, marginBottom: 16, color: '#fca5a5', fontSize: 13 }}>{typeFormError}</div>}
+
+        {/* Filament Colors */}
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginBottom: 10 }}>Colors</h3>
+        {filamentColors.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+            <thead>
+              <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 8px' }}>Color</th>
+                <th style={{ padding: '4px 8px' }}>Name</th>
+                <th style={{ padding: '4px 8px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filamentColors.map(c => (
+                <tr key={c.id} style={{ borderBottom: '1px solid #1a2030' }}>
+                  <td style={{ padding: '6px 8px' }}>
+                    <span style={{
+                      display: 'inline-block', width: 16, height: 16, borderRadius: '50%',
+                      background: c.hex_color || '#334155',
+                      border: '1px solid #475569',
+                      verticalAlign: 'middle',
+                    }} title={c.hex_color || 'no color set'} />
+                  </td>
+                  <td style={{ padding: '6px 8px', color: '#e2e8f0' }}>
+                    {c.name}
+                    {c.hex_color && <span style={{ color: '#475569', fontSize: 11, marginLeft: 8, fontFamily: 'monospace' }}>{c.hex_color}</span>}
+                  </td>
+                  <td style={{ padding: '6px 8px' }}>
+                    <button
+                      onClick={() => handleDeleteColor(c.id, c.name)}
+                      style={{ background: 'none', border: '1px solid #7f1d1d', borderRadius: 4, color: '#f87171', fontSize: 12, padding: '2px 8px', cursor: 'pointer' }}
+                    >
+                      Delete
+                    </button>
+                    {colorDeleteError[c.id] && (
+                      <span style={{ color: '#fca5a5', fontSize: 12, marginLeft: 8 }}>{colorDeleteError[c.id]}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {filamentColors.length === 0 && (
+          <p style={{ color: '#475569', fontSize: 13, marginBottom: 12 }}>No colors yet. Add your first below.</p>
+        )}
+        <form onSubmit={handleAddColor} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'flex-end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Color name *</label>
+            <input
+              value={colorForm.name}
+              onChange={e => setColorForm(p => ({ ...p, name: e.target.value }))}
+              required
+              placeholder="e.g. Black, Galaxy Red"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Hex (optional)</label>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="color"
+                value={colorForm.hex_color || '#000000'}
+                onChange={e => setColorForm(p => ({ ...p, hex_color: e.target.value }))}
+                style={{ width: 36, height: 34, padding: 2, background: '#0f172a', border: '1px solid #334155', borderRadius: 4, cursor: 'pointer' }}
+                title="Pick a color"
+              />
+              <input
+                value={colorForm.hex_color}
+                onChange={e => setColorForm(p => ({ ...p, hex_color: e.target.value }))}
+                placeholder="#rrggbb"
+                style={{ ...inputStyle, width: 90, fontFamily: 'monospace' }}
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+          >
+            Add Color
+          </button>
+        </form>
+        {colorFormError && <div style={{ marginTop: 8, color: '#fca5a5', fontSize: 13 }}>{colorFormError}</div>}
       </section>
 
       {/* Dispatch Settings */}

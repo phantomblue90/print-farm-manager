@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-06-19 — Filament Library: admin-managed types and colors
+
+### Feature: canonical filament type and color lists with swatch support
+
+Adds a **Filament Library** to the Settings page where admins configure the filament types (PLA, PETG, ASA, …) and colors (Black, Galaxy Red, Hedgehog Make Galaxy Red, …) available in the farm. Colors optionally carry a hex code which is displayed as a color swatch in the library table.
+
+All material and color pickers throughout the app — the Add Printer form, the Printers bulk-edit bar, the PrinterDetail edit form, and the G-code upload and edit rows in Projects — are now `<select>` dropdowns sourced from this canonical list instead of free-text `<input>` fields with datalist autocomplete.
+
+### Changes
+- `server/db.js`: added `filament_types (id, name)` and `filament_colors (id, name, hex_color)` tables via `CREATE TABLE IF NOT EXISTS`.
+- `server/routes/filaments.js` (new): `GET/POST/DELETE /api/filaments/types` and `GET/POST/DELETE /api/filaments/colors`.
+- `server/index.js`: mount `/api/filaments` router.
+- `client/src/pages/Settings.jsx`: added Filament Library section (types table + add form; colors table with hex swatch + add form with color picker); swapped add-printer loaded material/color inputs to `<select>`.
+- `client/src/pages/Printers.jsx`: replaced `/api/printers/filaments` fetch with canonical type/color fetches; bulk-edit bar material and color inputs changed to `<select>`.
+- `client/src/pages/PrinterDetail.jsx`: same fetch swap; loaded material/color edit inputs changed to `<select>`.
+- `client/src/pages/Projects.jsx`: same fetch swap in both `GcodeUploadPanel` and `GcodeEstimateRow`; targeting selects now sourced from canonical list.
+- `docs/filaments.md` (new): documents tables, endpoints, and usage.
+
+---
+
 ## 2026-06-16 — Fix: OFFLINE with no active job incorrectly held printers
 
 ### Bug: printers stuck held after going offline from a confirmed-finished state
