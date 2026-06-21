@@ -2,6 +2,18 @@
 
 ---
 
+## 2026-06-20 — Fleet card click opens printer detail
+
+Clicking a printer card in the Fleet page now navigates to that printer's detail view (`/printers/:id`) instead of dumping raw status to the browser console. The old `inspectPrinter()` debug helper (which fetched `/api/printers/:id/raw-status` and `console.group`'d the result) has been removed. The batch-confirmation interaction is unchanged: a card awaiting sign-off (held + `FINISHED`/`IDLE`) still toggles batch "Set Ready" selection on click rather than navigating.
+
+The `GET /api/printers/:id/raw-status` endpoint is intentionally left in place as a debugging aid.
+
+### Changes
+- `client/src/pages/Fleet.jsx`: removed `inspectPrinter()`; added `useNavigate`; `PrinterCard` takes an `onOpenDetail` prop and the card's non-confirmation click calls it; updated hover title text.
+- `docs/web-app.md`: documented Fleet card click behavior and added Fleet as a PrinterDetail entry point.
+
+---
+
 ## 2026-06-20 — Fix: recommission no longer re-holds the printer with a phantom "stale job"
 
 Recommissioning a printer immediately dispatches a job to it. But a just-dispatched job is marked `printing` while the printer's *stored* status still reads `IDLE`/`FINISHED` until the next poll (≤15s, longer if the machine is still heating before it reports `PRINTING`). The stale-job guard in `_dispatchToPrinter` treated any active job on a non-`PRINTING` printer as orphaned and auto-failed it. If a second dispatch fired in that window — e.g. recommission queues a dispatch and the operator then clicks "Scan for Jobs", enqueuing the same printer twice — the second dispatch killed the job the first had just created and re-held the printer, surfacing the green/red confirmation buttons again with a "stale job automatically cancelled" notification.

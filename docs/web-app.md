@@ -118,6 +118,8 @@ Live printer grid that polls `GET /api/printers` every 15 seconds (matching the 
 
 Filter chips in the Fleet header derive their text color from the same `STATUS_COLORS` constant so badges and chips are always in sync.
 
+**Card click behavior:** clicking a printer card navigates to its detail view (`/printers/:id`). The exception is a card awaiting sign-off (held + `FINISHED`/`IDLE`): there, clicking toggles the card's selection for the batch "Set Ready (N)" action instead. Action buttons inside a card (Set Ready, Bad Print, etc.) `stopPropagation`, so they never trigger navigation.
+
 **Confirmation button visibility:** "Set Ready" and "Bad Print" buttons (and the green card highlight) appear when `is_held === 1` AND `status` is `FINISHED` or `IDLE`.
 
 **OFFLINE-with-job handling:** when `is_held === 1` AND `status` is `OFFLINE` AND `has_active_job === 1`, an amber card and separate amber banner appear instead of the green confirmation UI. Two buttons are shown:
@@ -151,7 +153,7 @@ Click any row to navigate to `/printers/:id` (the Printer Detail view).
 
 `client/src/pages/PrinterDetail.jsx`
 
-Per-machine history and annotation screen. Reached by clicking a row in the Printers page, or via the "View History" button in the Decommissioned page.
+Per-machine history and annotation screen. Reached by clicking a printer card in the Fleet page, clicking a row in the Printers page, or via the "View History" button in the Decommissioned page.
 
 **Header card:** printer name, live status badge (or DECOMMISSIONED), model, IP, connector type, decommissioned timestamp if applicable.
 

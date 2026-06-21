@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PollTimer from '../components/PollTimer';
 import { useConfirm } from '../useConfirm';
 import { useToast } from '../useToast';
@@ -22,25 +23,6 @@ function statusStyle(status) {
   return STATUS_COLORS[status] || STATUS_COLORS.UNKNOWN;
 }
 
-async function inspectPrinter(printer) {
-  console.group(`[inspect] ${printer.name} (${printer.ip})`);
-  try {
-    const res  = await fetch(`/api/printers/${printer.id}/raw-status`);
-    const data = await res.json();
-    if (data.error) {
-      console.warn('Printer error:', data.error);
-    } else {
-      console.log('Full raw response:', data.raw);
-      console.log('printer.state:', data.raw?.printer?.state);
-      console.log('printer.flags:', data.raw?.printer?.flags);
-      console.log('job:', data.raw?.job);
-    }
-  } catch (err) {
-    console.error('Fetch failed:', err);
-  }
-  console.groupEnd();
-}
-
 function formatTimeRemaining(secs) {
   if (secs == null || secs < 0) return null;
   const h = Math.floor(secs / 3600);
@@ -50,7 +32,7 @@ function formatTimeRemaining(secs) {
   return '< 1m left';
 }
 
-function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onUploadFailed, onDecommission, onLinkJob }) {
+function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onUploadFailed, onDecommission, onLinkJob, onOpenDetail }) {
   const style = statusStyle(printer.status);
 
   // Confirmed-qty input — pre-filled from the last finished job's parts_per_plate.
@@ -96,8 +78,8 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 
   return (
     <div
-      onClick={(needsConfirmation && !needsUploadConfirmation) ? () => onToggleSelect(printer.id) : () => inspectPrinter(printer)}
-      title={(needsConfirmation && !needsUploadConfirmation) ? (selected ? 'Click to deselect' : 'Click to select for batch Set Ready') : 'Click to inspect raw printer status in console'}
+      onClick={(needsConfirmation && !needsUploadConfirmation) ? () => onToggleSelect(printer.id) : () => onOpenDetail(printer.id)}
+      title={(needsConfirmation && !needsUploadConfirmation) ? (selected ? 'Click to deselect' : 'Click to select for batch Set Ready') : 'Click to open printer details'}
       style={{
         background: (needsOfflineConfirmation || needsUploadConfirmation) ? '#2a1f0e' : needsConfirmation ? '#1c2a1c' : '#1e2433',
         border: `${selected ? '2px' : '1px'} solid ${cardBorder()}`,
@@ -273,6 +255,7 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
 }
 
 export default function Fleet() {
+  const navigate                              = useNavigate();
   const [confirm, confirmModal]               = useConfirm();
   const [showToast, toastEl]                  = useToast();
   const [printers, setPrinters]               = useState([]);
@@ -812,6 +795,7 @@ export default function Fleet() {
                 onUploadFailed={uploadFailed}
                 onDecommission={decommission}
                 onLinkJob={openLinkJobModal}
+                onOpenDetail={(id) => navigate(`/printers/${id}`)}
               />
             ))}
           </div>
