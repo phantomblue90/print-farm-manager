@@ -98,7 +98,8 @@ Live printer grid that polls `GET /api/printers` every 15 seconds (matching the 
 - Search box filters by printer name, IP, or group name (case-insensitive)
 - Printers grouped by model: MK4S → Core One → Core 1L → XL → Other (in that order)
 - Each printer card shows: name, status badge (color-coded), model tag, group name
-- **While PRINTING:** job filename (monospace, truncated), left-to-right blue progress bar, percentage and time remaining (formatted as "1h 23m left")
+- **While PRINTING:** job filename (monospace, truncated), left-to-right blue progress bar, percentage, time remaining, and wall-clock ETA (e.g. "45m left · done 4:35 PM")
+- **While UPLOADING (display-only overlay):** the hardware still reports IDLE while the scheduler transfers a file, so cards with a healthy in-flight upload (`has_uploading_job` and not held) show a violet "Uploading" badge, the filename, and "Sending file to printer…". Held + uploading is a *failed* upload and renders the existing orange confirmation UI instead. The overlay is computed client-side (`displayStatus()` in Fleet.jsx) and never written to `printers.status`; the Uploading chip/count appears in the filter row and uploading printers are excluded from the Idle count.
 - IP address is not shown on cards
 - Empty state message when no printers are registered
 

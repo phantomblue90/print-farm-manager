@@ -7,6 +7,7 @@ import { useToast } from '../useToast';
 
 const STATUS_COLORS = {
   PRINTING:   { bg: '#1e3a5f', text: '#60a5fa', label: 'Printing' },
+  UPLOADING:  { bg: '#3b2c69', text: '#a78bfa', label: 'Uploading' },
   IDLE:       { bg: '#1f2937', text: '#6b7280', label: 'Idle' },
   READY:      { bg: '#1f2937', text: '#94a3b8', label: 'Ready' },
   FINISHED:   { bg: '#14532d', text: '#86efac', label: 'Finished' },
@@ -22,6 +23,16 @@ const KNOWN_STATUSES = new Set(Object.keys(STATUS_COLORS));
 
 function statusStyle(status) {
   return STATUS_COLORS[status] || STATUS_COLORS.UNKNOWN;
+}
+
+// What the card should say. The hardware still reports IDLE/FINISHED while the
+// scheduler transfers a file, so a healthy in-flight upload displays as UPLOADING.
+// Held + uploading is a FAILED upload — that keeps its hardware status so the
+// existing confirmation flow renders unchanged. This is display-only; it never
+// feeds back into printers.status.
+function displayStatus(p) {
+  if (p.has_uploading_job === 1 && p.is_held === 0 && p.status !== 'PRINTING') return 'UPLOADING';
+  return p.status;
 }
 
 function formatTimeRemaining(secs) {
@@ -45,7 +56,9 @@ function formatEta(secs) {
 }
 
 function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint, onUploadFailed, onDecommission, onLinkJob, onOpenDetail }) {
-  const style = statusStyle(printer.status);
+  const shownStatus = displayStatus(printer);
+  const style = statusStyle(shownStatus);
+  const isUploading = shownStatus === 'UPLOADING';
 
   // Confirmed-qty input — pre-filled from the last finished job's parts_per_plate.
   // Only shown when is_held and we know how many parts were on the plate.
@@ -127,6 +140,24 @@ function PrinterCard({ printer, selected, onToggleSelect, onSetReady, onBadPrint
           </span>
         )}
       </div>
+
+      {/* Upload in progress — file is being transferred to the printer */}
+      {isUploading && (
+        <div style={{ marginTop: 2 }}>
+          {printer.uploading_job_name && (
+            <div style={{
+              fontSize: 11, color: '#94a3b8', fontFamily: 'monospace',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              marginBottom: 5,
+            }}>
+              {printer.uploading_job_name}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: '#a78bfa' }}>
+            Sending file to printer…
+          </div>
+        </div>
+      )}
 
       {/* Print job info — only when printing */}
       {isPrinting && (
@@ -544,7 +575,8 @@ export default function Fleet() {
   }
 
   const counts = printers.reduce((acc, p) => {
-    acc[p.status] = (acc[p.status] || 0) + 1;
+    const s = displayStatus(p);
+    acc[s] = (acc[s] || 0) + 1;
     return acc;
   }, {});
 
@@ -552,7 +584,7 @@ export default function Fleet() {
 
   const filtered = printers.filter((p) => {
     if (filter === 'UNKNOWN') return !KNOWN_STATUSES.has(p.status);
-    if (filter !== 'ALL' && p.status !== filter) return false;
+    if (filter !== 'ALL' && displayStatus(p) !== filter) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
         !p.ip.includes(search) && !(p.group_name || '').toLowerCase().includes(search.toLowerCase())) {
       return false;
@@ -752,6 +784,7 @@ export default function Fleet() {
         {[
           { key: 'ALL',      count: printers.length,        label: `All (${printers.length})`,             color: '#64748b' },
           { key: 'PRINTING', count: counts.PRINTING || 0,   label: `Printing (${counts.PRINTING || 0})`,   color: STATUS_COLORS.PRINTING.text },
+          { key: 'UPLOADING',count: counts.UPLOADING || 0,  label: `Uploading (${counts.UPLOADING || 0})`, color: STATUS_COLORS.UPLOADING.text },
           { key: 'IDLE',     count: counts.IDLE || 0,       label: `Idle (${counts.IDLE || 0})`,           color: STATUS_COLORS.IDLE.text },
           { key: 'FINISHED', count: counts.FINISHED || 0,   label: `Finished (${counts.FINISHED || 0})`,   color: STATUS_COLORS.FINISHED.text },
           { key: 'STOPPED',  count: counts.STOPPED || 0,    label: `Stopped (${counts.STOPPED || 0})`,     color: STATUS_COLORS.STOPPED.text },

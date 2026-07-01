@@ -50,6 +50,10 @@ module.exports = (db) => {
         EXISTS(
           SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status = 'uploading'
         ) AS has_uploading_job,
+        (SELECT g.filename FROM jobs j JOIN gcodes g ON g.id = j.gcode_id
+          WHERE j.printer_id = p.id AND j.status = 'uploading'
+          ORDER BY j.created_at DESC LIMIT 1
+        ) AS uploading_job_name,
         EXISTS(
           SELECT 1 FROM jobs j WHERE j.printer_id = p.id AND j.status = 'printing'
         ) AS has_printing_job

@@ -51,6 +51,8 @@ Returns all active printers (`is_active = 1`) ordered by name.
 
 `has_active_job` is `1` if the printer currently has a job in `uploading` or `printing` status, `0` otherwise — used by the Fleet UI to show the OFFLINE-with-job confirmation buttons.
 
+`uploading_job_name` is the filename of the printer's active `uploading` job (`null` when none). The Fleet UI uses it with `has_uploading_job` to display an "Uploading" status overlay while a file transfers — the hardware still reports IDLE during transfer, so this is presentation-only and never written back to `status`.
+
 ### `GET /api/printers/ams?model=<model_id>`
 
 Returns the live AMS slot list from any connected Bambu printer of the given model. Used by the upload form to populate the slot picker.

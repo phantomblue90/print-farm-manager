@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-07-01 — Fleet view shows in-flight uploads
+
+While the scheduler transfers a file, the printer hardware still reports IDLE — so the Fleet view showed "Idle" for machines that were actually mid-dispatch, disagreeing with the Jobs page. Fleet cards now show a violet **Uploading** badge with the filename and "Sending file to printer…" during a healthy transfer, plus an "Uploading (N)" filter chip; uploading printers no longer inflate the Idle count.
+
+Implementation is a display-only overlay (`displayStatus()` in Fleet.jsx): held + uploading means a *failed* upload and keeps the existing orange confirmation UI; the overlay never writes back to `printers.status`, leaving the poller/scheduler state machine untouched.
+
+### Changes
+- `server/routes/printers.js`: `GET /api/printers` now includes `uploading_job_name` (filename of the active uploading job, via gcodes join).
+- `client/src/pages/Fleet.jsx`: `UPLOADING` status color (violet, matches Jobs page), `displayStatus()` helper, card upload block, counts/filter derive from display status, Uploading filter chip.
+- `docs/api.md`, `docs/web-app.md`: documented the new field and overlay behavior.
+
+Verified with demo-seeded screenshots showing a healthy upload (violet badge) and a failed upload (orange confirmation UI) side by side; 348/348 tests pass.
+
+---
+
 ## 2026-07-01 — UX pass for first-time users (pre-release)
 
 Full UI/UX review and improvement pass ahead of the open-source release, focused on the shift from "author who built it" to "stranger installing it fresh." Verified against the demo seed with screenshots at desktop and mobile widths; all 348 tests pass.
