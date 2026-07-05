@@ -14,6 +14,20 @@ The Settings page also now refreshes printer models, filament lists, farm name, 
 - `server/routes/backup.js`: export/restore now include `printer_models`, `filament_types`, `filament_colors`, `settings`; guarded restore for backward compatibility with older backup files; response/log now report counts for all restored tables.
 - `client/src/pages/Settings.jsx`: added restore-result chips for the three new counts; refetches models/filament lists/settings after a successful restore.
 - `docs/api.md`: corrected the backup endpoint docs, which previously described the buggy behavior ("all 5 tables") as correct.
+
+**Follow-up (PR review):** the restore side used a hand-maintained column list per table (`printers`, `projects`, `parts`, `gcodes`), which had drifted out of sync with migrations added to `server/db.js` over time — reviewer reproduced it directly: a backup containing Bambu/CC2 `serial_number`, printer `loaded_material`/`loaded_color`, project `required_material`/`required_color`, and gcode `ams_slot`/`material_grams`/`allowed_groups`/`required_material`/`required_color` restored successfully but silently dropped every one of those fields to null/default. A disaster-recovery restore could leave Bambu/CC2 printers unable to connect and lose the material/group constraints that keep jobs off the wrong machines.
+
+Fixed by deriving each restore INSERT's column list from `PRAGMA table_info(table)` instead of a hardcoded list (`makeInserter()` in `backup.js`) — this makes the whole bug class structurally impossible going forward: a column a future migration adds is picked up automatically, with nothing in `backup.js` to remember to update. A property missing from a given row (an older backup predating a newer column) binds as `null` rather than throwing.
+
+Added `server/tests/backup-restore.test.js` per the reviewer's request for a test that would fail if a migrated column were dropped again: seeds every one of the previously-affected columns, wipes them from the live DB, restores from a real export, and asserts they all come back — plus a backward-compatibility case confirming an older backup missing a since-added column restores as `null` instead of throwing. Also verified live against a running instance with the reviewer's exact repro shape (Bambu printer with serial number/loaded material/color, targeted project, targeted+AMS gcode) — full round trip, nothing dropped.
+
+### Changes (follow-up)
+- `server/routes/backup.js`: added `makeInserter()`, replaced all hardcoded restore `INSERT` column lists with it.
+- `server/tests/backup-restore.test.js` (new): column round-trip regression coverage.
+- `docs/api.md`: documented that restore now derives its column list from the live schema.
+
+---
+
 ## 2026-07-04 — CI: gate Docker publishing on the test suite
 
 `.github/workflows/docker-publish.yml` could previously publish an image even if `server/tests/` was failing — nothing ran the suite. Added a `test` job (`npm ci` + `npm test` on `ubuntu-24.04`) that both `build` and the PR-only `pr_test_build` job now declare as a dependency (`needs: test`), so a red test suite blocks any image build, published or not. `merge` remains gated transitively via `needs: build`.

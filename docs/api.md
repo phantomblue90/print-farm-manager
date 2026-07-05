@@ -586,6 +586,8 @@ Downloads a full farm snapshot as `farm-backup-YYYY-MM-DD.json`. Includes `print
 
 Replaces all farm data from a previously exported backup file. Clears the DB and rewrites all tables; gcode files are written to `server/gcode/`. Since `filepath` stores only the filename, no path rewriting is needed — the restored DB works correctly on any machine.
 
+Each table's restore INSERT covers every column the *live* schema currently has (derived from `PRAGMA table_info`, not a hardcoded list) — so printer `serial_number`/`loaded_material`/`loaded_color`, project `required_material`/`required_color`, part `print_time_seconds`/`material_grams`, and gcode `ams_slot`/`material_grams`/`allowed_groups`/`required_material`/`required_color` all round-trip correctly, along with any future column a migration adds. A column present in the live schema but missing from a given backup row (e.g. an older backup that predates it) restores as `null`.
+
 `printer_models`, `filament_types`, `filament_colors`, and `settings` are restored the same way, but each is only cleared and rewritten if that key is present in the uploaded file — restoring a backup taken before these were added to the export leaves the farm's current printer models, filament library, and settings untouched rather than wiping them with nothing to restore.
 
 **Request:** `multipart/form-data` with field `file` — the `.json` backup file. Max 500 MB.
