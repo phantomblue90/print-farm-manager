@@ -35,6 +35,12 @@ Added `server/tests/backup-restore.test.js` per the reviewer's request for a tes
 - `server/tests/backup-restore.test.js`: added coverage for a missing `NOT NULL DEFAULT` column (`parts.sort_order`) restoring to its default instead of throwing, and for `gcode_files` keys attempting path traversal (`../../server/index.js`, bare `..`) being rejected with `400` and never reaching `fs.writeFileSync`.
 - `docs/api.md`: documented the `gcode_files` filename validation and the schema-default fallback for columns missing from a backup.
 
+**Follow-up 3 (PR review, third round):**
+- **[P2] No coverage for the config tables this PR added to backup/restore.** The regression suite exercised migrated columns on `printers`/`projects`/`parts`/`gcodes`, the missing `NOT NULL DEFAULT` case, and `gcode_files` validation, but never seeded or asserted `printer_models`/`filament_types`/`filament_colors`/`settings` — the four tables this PR originally added. Neither the round trip (including the `filament_colors` → `filament_types` FK order) nor the older-backup compatibility guard (missing keys must leave existing config alone) was tested for them.
+
+### Changes (follow-up 3)
+- `server/tests/backup-restore.test.js`: seeded two filament types/colors (not one) plus a printer model and two settings rows in `beforeEach`; added a describe block covering (1) export includes all four tables, (2) restore round-trips them and each restored `filament_colors` row resolves to the *correct* `filament_types` row by name (not just any row satisfying the FK), and (3) an older backup missing all four keys leaves the farm's current printer models/filament library/settings untouched. The round-trip case mutates the existing filament rows rather than deleting them first, so restore's own internal delete-then-insert runs against still-linked rows — verified by temporarily reversing the delete order in `backup.js` and confirming the test fails (500, FK violation) before reverting.
+
 ---
 
 ## 2026-07-04 — CI: gate Docker publishing on the test suite

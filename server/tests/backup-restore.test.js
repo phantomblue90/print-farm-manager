@@ -157,6 +157,16 @@ beforeEach(() => {
        2, 45.5, '["Bambu Farm"]', 'PETG', 'Red')
   `).run(now);
 
+  // Two types/colors (not one) so a restore that gets the filament_colors -> filament_types
+  // FK order wrong, or maps a color to the wrong type, doesn't slip through by coincidence.
+  db.prepare(`INSERT INTO printer_models (model_id, label, connector) VALUES ('x1c', 'Bambu X1 Carbon', 'bambu')`).run();
+  db.prepare(`INSERT INTO filament_types (name) VALUES ('PLA')`).run();
+  db.prepare(`INSERT INTO filament_types (name) VALUES ('PETG')`).run();
+  db.prepare(`INSERT INTO filament_colors (type_id, name, hex_color) VALUES (1, 'Galaxy Black', '#1a1a1a')`).run();
+  db.prepare(`INSERT INTO filament_colors (type_id, name, hex_color) VALUES (2, 'Signal Red', '#cc0000')`).run();
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('farm_name', 'Test Farm')`).run();
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('dispatch_batch_size', '5')`).run();
+
   // server/routes/backup.js declares its Express router at module scope, like every
   // route file in this codebase. Node's require() cache means a second require() in the
   // same process would reuse that router with a stale db closure from a previous test's
@@ -286,6 +296,126 @@ describe('Backup export/restore — column round-trip regression', () => {
 
       const part = db.prepare('SELECT * FROM parts WHERE id = 1').get();
       expect(part.sort_order).toBe(0); // schema DEFAULT, not a thrown NOT NULL violation
+    } finally {
+      fs.unlinkSync(backupFile);
+    }
+  });
+});
+
+// Reported (PR review, third round): the regression suite covered migrated columns on
+// printers/projects/parts/gcodes, the missing NOT NULL DEFAULT case, and gcode_files
+// validation, but never seeded or asserted printer_models/filament_types/filament_colors/
+// settings — the four tables this PR originally added to backup/restore — leaving both the
+// round trip (including the filament_colors -> filament_types FK order) and the
+// older-backup compatibility guard (missing keys must leave existing config alone) untested.
+describe('Backup export/restore — config tables (printer models, filament library, settings)', () => {
+  test('export includes printer_models, filament_types, filament_colors, and settings', async () => {
+    const res = await request(app).get('/api/backup');
+    expect(res.status).toBe(200);
+
+    expect(res.body.printer_models).toEqual(
+      expect.arrayContaining([expect.objectContaining({ model_id: 'x1c', label: 'Bambu X1 Carbon', connector: 'bambu' })])
+    );
+    expect(res.body.filament_types).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'PLA' }), expect.objectContaining({ name: 'PETG' })])
+    );
+    expect(res.body.filament_colors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Galaxy Black', hex_color: '#1a1a1a' }),
+        expect.objectContaining({ name: 'Signal Red', hex_color: '#cc0000' }),
+      ])
+    );
+    expect(res.body.settings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'farm_name', value: 'Test Farm' }),
+        expect.objectContaining({ key: 'dispatch_batch_size', value: '5' }),
+      ])
+    );
+  });
+
+  test('restore round-trips printer models, filament library (preserving type/color FK relationships), and settings', async () => {
+    const exportRes = await request(app).get('/api/backup');
+    expect(exportRes.status).toBe(200);
+    const backupFile = writeTempBackupFile(exportRes.body);
+
+    try {
+      // Mutate (don't delete) the existing rows so a no-op restore can't slip through, while
+      // *leaving the filament_colors -> filament_types FK relationship intact* going into
+      // restore. Deleting them here first would make restore's own internal
+      // DELETE FROM filament_colors / DELETE FROM filament_types run against already-empty
+      // tables, which would silently pass even if that delete order were reversed — the
+      // exact bug this test needs to catch only shows up when restore has to clear real,
+      // still-linked rows: deleting filament_types first while filament_colors still
+      // references them (or inserting filament_colors before their filament_types row
+      // exists) raises a foreign key constraint violation and the request would 500 instead
+      // of 200 below.
+      db.prepare("UPDATE filament_colors SET hex_color = '#000000'").run();
+      db.prepare("UPDATE filament_types SET name = name || '-wiped'").run(); // keeps UNIQUE(name) satisfied
+      db.prepare("UPDATE printer_models SET label = 'Wiped'").run();
+      db.prepare("UPDATE settings SET value = 'Wiped Farm' WHERE key = 'farm_name'").run();
+
+      const restoreRes = await request(app).post('/api/backup/restore').attach('file', backupFile);
+      expect(restoreRes.status).toBe(200);
+      expect(restoreRes.body.ok).toBe(true);
+      expect(restoreRes.body.printer_models).toBe(1);
+      expect(restoreRes.body.filament_types).toBe(2);
+      expect(restoreRes.body.filament_colors).toBe(2);
+
+      const model = db.prepare('SELECT * FROM printer_models WHERE model_id = ?').get('x1c');
+      expect(model).toMatchObject({ label: 'Bambu X1 Carbon', connector: 'bambu' });
+
+      // Confirm each restored color's type_id resolves to the *correct* filament_types row
+      // by name, not just to some row that happens to satisfy the FK.
+      const black = db.prepare(`
+        SELECT ft.name AS type_name, fc.hex_color FROM filament_colors fc
+        JOIN filament_types ft ON ft.id = fc.type_id
+        WHERE fc.name = 'Galaxy Black'
+      `).get();
+      expect(black.type_name).toBe('PLA');
+      expect(black.hex_color).toBe('#1a1a1a');
+
+      const red = db.prepare(`
+        SELECT ft.name AS type_name, fc.hex_color FROM filament_colors fc
+        JOIN filament_types ft ON ft.id = fc.type_id
+        WHERE fc.name = 'Signal Red'
+      `).get();
+      expect(red.type_name).toBe('PETG');
+      expect(red.hex_color).toBe('#cc0000');
+
+      const farmName = db.prepare("SELECT value FROM settings WHERE key = 'farm_name'").get();
+      expect(farmName.value).toBe('Test Farm');
+    } finally {
+      fs.unlinkSync(backupFile);
+    }
+  });
+
+  test('restoring an older backup missing printer_models/filament/settings keys leaves current config untouched', async () => {
+    const exportRes = await request(app).get('/api/backup');
+    const backup = exportRes.body;
+    // Simulate a pre-this-feature backup: strip the four keys entirely rather than leaving
+    // them as empty arrays, matching what an old export actually produced.
+    delete backup.printer_models;
+    delete backup.filament_types;
+    delete backup.filament_colors;
+    delete backup.settings;
+    const backupFile = writeTempBackupFile(backup);
+
+    try {
+      const restoreRes = await request(app).post('/api/backup/restore').attach('file', backupFile);
+      expect(restoreRes.status).toBe(200);
+      expect(restoreRes.body.ok).toBe(true);
+
+      const model = db.prepare('SELECT * FROM printer_models WHERE model_id = ?').get('x1c');
+      expect(model).toMatchObject({ label: 'Bambu X1 Carbon', connector: 'bambu' });
+
+      const types = db.prepare('SELECT name FROM filament_types ORDER BY name').all().map(t => t.name);
+      expect(types).toEqual(['PETG', 'PLA']);
+
+      const colors = db.prepare('SELECT name FROM filament_colors ORDER BY name').all().map(c => c.name);
+      expect(colors).toEqual(['Galaxy Black', 'Signal Red']);
+
+      const farmName = db.prepare("SELECT value FROM settings WHERE key = 'farm_name'").get();
+      expect(farmName.value).toBe('Test Farm');
     } finally {
       fs.unlinkSync(backupFile);
     }
