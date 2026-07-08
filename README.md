@@ -152,7 +152,7 @@ Pin to a specific release instead of always tracking `latest` by using a version
 
 #### Building from source instead
 
-If you're testing local changes rather than running a release, clone the repo and build with the `docker-compose.yml` at its root (uses `build: .` instead of `image:`):
+If you're testing local changes rather than running a release, clone the repo and build with the `docker-compose.yml` at its root (uses `build:` instead of `image:`):
 
 ```bash
 git clone https://github.com/joeltelling/print-farm-manager.git
@@ -232,8 +232,8 @@ print-farm-manager/
 │       └── octoprint.js   # OctoPrint REST
 ├── client/               # React + Vite frontend
 ├── docs/                 # Full documentation
-├── Dockerfile            # Multi-stage production image (build client + server, run on Node 22)
-└── docker-compose.yml    # Production container with persistent data/gcode volumes
+├── Dockerfile            # Multi-stage: server-deps/client-build/runtime (production) + dev
+└── docker-compose.yml    # Production container + persistent volumes, plus an opt-in `dev` profile
 ```
 
 ---
