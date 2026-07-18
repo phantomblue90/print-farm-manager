@@ -1,0 +1,56 @@
+name: Fix Bambu cleanup path
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'automation/bambu-project-diagnostics-trigger'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply cleanup fix
+        run: node scripts/fix-bambu-delete-path.js
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
+
+      - name: Run tests
+        run: npm test -- --runInBand
+
+      - name: Build client
+        run: npm run build --prefix client
+
+      - name: Commit tested cleanup fix
+        run: |
+          rm scripts/fix-bambu-delete-path.js
+          rm .github/workflows/fix-bambu-delete-path.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/drivers/bambu.js scripts/fix-bambu-delete-path.js .github/workflows/fix-bambu-delete-path.yml
+          git commit -m "fix(bambu): clean project files from upload path"
+          git push origin HEAD:main
+
+      - name: Close trigger pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr close "${{ github.event.pull_request.number }}" --comment "Cleanup path correction applied after tests and client build passed."
