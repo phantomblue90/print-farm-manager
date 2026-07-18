@@ -1,0 +1,1 @@
+Trigger the tested X1/P1/A1 AMS mapping correction workflow.
