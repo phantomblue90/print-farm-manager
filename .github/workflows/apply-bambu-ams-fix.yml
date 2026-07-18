@@ -44,8 +44,11 @@ jobs:
           path: /tmp/bambu-ams-patched-source.tar.gz
           retention-days: 1
 
-      - name: Install dependencies
+      - name: Install server dependencies
         run: npm ci
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
 
       - name: Run tests
         run: npm test -- --runInBand
