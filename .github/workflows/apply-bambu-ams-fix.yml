@@ -1,17 +1,16 @@
 name: Apply Bambu AMS fix
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - scripts/apply-bambu-ams-fix.js
-      - .github/workflows/apply-bambu-ams-fix.yml
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   apply:
+    if: github.event.issue.title == 'Run Bambu AMS migration'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -53,3 +52,9 @@ jobs:
                   .github/workflows/apply-bambu-ams-fix.yml
           git commit -m "fix(bambu): support external and multi-filament AMS mappings"
           git push origin HEAD:main
+
+      - name: Close trigger issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue close "$ISSUE_NUMBER" --comment "Bambu AMS migration applied and validated."
