@@ -90,6 +90,44 @@ function normalizeMaterialGrams(raw) {
   return null;
 }
 
+// Multi-filament mappings are stored as JSON in the existing ams_slot field.
+// Single selections remain integers for backward compatibility.
+function normalizeAmsSelection(amsMapping, amsSlot) {
+  if (amsMapping !== undefined && amsMapping !== '') {
+    let parsed;
+
+    try {
+      parsed = typeof amsMapping === 'string'
+        ? JSON.parse(amsMapping)
+        : amsMapping;
+    } catch (_) {
+      throw new Error('ams_mapping must be a JSON array of AMS slots');
+    }
+
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error('ams_mapping must contain at least one AMS slot');
+    }
+
+    const mapping = parsed.map(item => Number(item));
+    if (mapping.some(item => !Number.isInteger(item) || item < -1)) {
+      throw new Error(
+        'ams_mapping slots must be integers greater than or equal to -1'
+      );
+    }
+
+    return mapping.length === 1 ? mapping[0] : JSON.stringify(mapping);
+  }
+
+  if (amsSlot === undefined || amsSlot === '') return null;
+
+  const slot = Number(amsSlot);
+  if (!Number.isInteger(slot) || slot < -1) {
+    throw new Error('ams_slot must be an integer greater than or equal to -1');
+  }
+
+  return slot;
+}
+
 module.exports = (db) => {
   // GET /api/gcodes — list, optionally filtered by part_id
   router.get('/', (req, res) => {
@@ -122,7 +160,7 @@ module.exports = (db) => {
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot, material_grams,
+    const { part_id, parts_per_plate, printer_model, est_print_secs, ams_slot, ams_mapping, material_grams,
             allowed_groups, required_material, required_color } = req.body;
 
     if (!part_id || !parts_per_plate || !printer_model) {
@@ -146,8 +184,14 @@ module.exports = (db) => {
       });
     }
 
-    // ams_slot: -1 = external spool, 0–N = AMS slot, null = not applicable (non-Bambu)
-    const parsedAmsSlot = ams_slot !== undefined && ams_slot !== '' ? parseInt(ams_slot, 10) : null;
+    // ams_slot is the legacy single selection; ams_mapping has one slot per filament.
+    let parsedAmsSlot;
+    try {
+      parsedAmsSlot = normalizeAmsSelection(ams_mapping, ams_slot);
+    } catch (err) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: err.message });
+    }
 
     const parsedMaterialGrams = material_grams ? parseFloat(material_grams) : null;
     // allowed_groups: JSON array string e.g. '["MK4S Farm","XL Farm"]', or null = all groups

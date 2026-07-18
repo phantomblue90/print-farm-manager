@@ -80,6 +80,7 @@ beforeAll(() => {
   db.exec(`INSERT INTO printer_models VALUES ('x1c',  'X1 Carbon',  'bambu')`);
   db.exec(`INSERT INTO printer_models VALUES ('a1',   'A1',         'bambu')`);
   db.exec(`INSERT INTO printer_models VALUES ('p1s',  'P1S',        'bambu')`);
+  db.exec(`INSERT INTO printer_models VALUES ('p1p',  'P1P',        'bambu')`);
 
   if (!fs.existsSync(GCODE_DIR)) fs.mkdirSync(GCODE_DIR, { recursive: true });
 
@@ -248,6 +249,24 @@ describe('POST /api/gcodes/upload', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.ams_slot).toBe(-1);
+    uploadedPath = res.body.filepath;
+  });
+
+  test('stores a multi-filament AMS mapping as JSON', async () => {
+    const tmpFile = makeTempGcode('bambu_multi.3mf');
+
+    const res = await request(app)
+      .post('/api/gcodes/upload')
+      .attach('file', tmpFile)
+      .field('part_id', '1')
+      .field('parts_per_plate', '1')
+      .field('printer_model', 'p1p')
+      .field('ams_mapping', '[0,3,6]');
+
+    fs.unlinkSync(tmpFile);
+
+    expect(res.status).toBe(201);
+    expect(res.body.ams_slot).toBe('[0,3,6]');
     uploadedPath = res.body.filepath;
   });
 

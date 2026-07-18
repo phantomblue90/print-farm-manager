@@ -144,6 +144,15 @@ const uploadLabelSx = {
   marginBottom: 3,
 };
 
+function formatAmsSlotLabel(slot) {
+  if (slot === -1) return 'External Spool';
+  if (slot >= 128) return `AMS HT ${slot - 127}`;
+
+  const amsUnit = Math.floor(slot / 4);
+  const tray = (slot % 4) + 1;
+  return `AMS ${String.fromCharCode(65 + amsUnit)}${tray}`;
+}
+
 function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, projectMaterial, projectColor, projectGroups, groups }) {
   const [file, setFile]             = useState(null);
   const [partsPerPlate, setPPP]     = useState('');
@@ -154,7 +163,7 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
   const fileInputRef                = useRef(null);
   const [modelOptions, setModelOptions] = useState([]);
   const [amsSlots, setAmsSlots]     = useState([]);
-  const [amsSlot, setAmsSlot]       = useState('');
+  const [amsMapping, setAmsMapping] = useState(['']);
   const [selectedGroups, setSelectedGroups]   = useState([]);  // [] = all groups (or inherits project)
   const [requiredMaterial, setRequiredMaterial] = useState('');
   const [requiredColor, setRequiredColor]       = useState('');
@@ -164,11 +173,11 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
   }, []);
 
   useEffect(() => {
-    if (!model) { setAmsSlots([]); setAmsSlot(''); return; }
+    if (!model) { setAmsSlots([]); setAmsMapping(['']); return; }
     fetch(`/api/printers/ams?model=${encodeURIComponent(model)}`)
       .then(r => r.json())
-      .then(slots => { setAmsSlots(slots); setAmsSlot(''); })
-      .catch(() => { setAmsSlots([]); setAmsSlot(''); });
+      .then(slots => { setAmsSlots(slots); setAmsMapping(['']); })
+      .catch(() => { setAmsSlots([]); setAmsMapping(['']); });
   }, [model]);
 
   const [parsedEstPrintSecs, setParsedEstPrintSecs] = useState(null);
@@ -211,8 +220,8 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
     if (bambuNeedsThreemf)  { setError('Bambu printers require a .3mf file.'); return; }
     if (!partsPerPlate)     { setError('Enter parts per plate.'); return; }
     if (!model)             { setError('Select a printer model.'); return; }
-    if (amsSlots.length > 0 && amsSlot === '') {
-      setError('Select an AMS slot or External Spool.'); return;
+    if (amsSlots.length > 0 && amsMapping.some(slot => slot === '')) {
+      setError('Select an AMS slot or External Spool for every filament.'); return;
     }
 
     setUploading(true);
@@ -223,7 +232,14 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
     fd.append('part_id', String(part.id));
     fd.append('parts_per_plate', partsPerPlate);
     fd.append('printer_model', model);
-    if (amsSlots.length > 0) fd.append('ams_slot', amsSlot);
+    if (amsSlots.length > 0) {
+      const numericMapping = amsMapping.map(Number);
+      if (numericMapping.length === 1) {
+        fd.append('ams_slot', String(numericMapping[0]));
+      } else {
+        fd.append('ams_mapping', JSON.stringify(numericMapping));
+      }
+    }
     if (parsedEstPrintSecs != null) fd.append('est_print_secs', String(parsedEstPrintSecs));
     if (parsedMaterialGrams != null) fd.append('material_grams', String(parsedMaterialGrams));
     if (selectedGroups.length > 0) fd.append('allowed_groups', JSON.stringify(selectedGroups));
@@ -249,7 +265,7 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
       if (!ok) {
         setError(data.error || 'Upload failed.');
       } else {
-        setFile(null); setPPP(''); setModel(''); setAmsSlot(''); setAmsSlots([]);
+        setFile(null); setPPP(''); setModel(''); setAmsMapping(['']); setAmsSlots([]);
         setParsedEstPrintSecs(null); setParsedMaterialGrams(null);
         setSelectedGroups([]); setRequiredMaterial(''); setRequiredColor('');
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -307,19 +323,62 @@ function GcodeUploadPanel({ part, onUploaded, filamentTypes, filamentColors, pro
           </select>
         </div>
         {amsSlots.length > 0 && (
-          <div>
-            <div style={uploadLabelSx}>AMS slot *</div>
-            <select
-              value={amsSlot}
-              onChange={(e) => setAmsSlot(e.target.value)}
-              style={{ ...inputSx, width: 160 }}
-            >
-              <option value="">Select…</option>
-              {amsSlots.map(s => s.slot === -1
-                ? <option key="ext" value="-1">External Spool{s.type ? ` — ${s.type}` : ''}</option>
-                : <option key={s.slot} value={String(s.slot)}>Slot {s.slot} — {s.type || 'unknown'}</option>
-              )}
-            </select>
+          <div style={{ minWidth: 225 }}>
+            <div style={uploadLabelSx}>Filament mapping *</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {amsMapping.map((selectedSlot, index) => (
+                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ color: '#64748b', fontSize: 11, width: 20 }}>
+                    F{index + 1}
+                  </span>
+                  <select
+                    value={selectedSlot}
+                    onChange={(e) => setAmsMapping(current =>
+                      current.map((slot, i) => i === index ? e.target.value : slot)
+                    )}
+                    style={{ ...inputSx, width: 180 }}
+                  >
+                    <option value="">Select…</option>
+                    {amsSlots.map(s => (
+                      <option key={s.slot} value={String(s.slot)}>
+                        {formatAmsSlotLabel(s.slot)}
+                        {s.type ? ` — ${s.type}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {amsMapping.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setAmsMapping(current =>
+                        current.filter((_, i) => i !== index)
+                      )}
+                      title={`Remove filament ${index + 1}`}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: 16,
+                        padding: 2,
+                      }}
+                    >×</button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setAmsMapping(current => [...current, ''])}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#60a5fa',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  padding: '2px 0',
+                  textAlign: 'left',
+                }}
+              >+ Add filament</button>
+            </div>
           </div>
         )}
         <button

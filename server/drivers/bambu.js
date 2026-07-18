@@ -235,17 +235,73 @@ function getAmsSlots(printer) {
   return slots;
 }
 
+// Normalize legacy single-slot values and new per-filament arrays into the
+// flat absolute-tray-ID array expected by Bambu's project_file command.
+function normalizeAmsMapping(value) {
+  let raw = value;
+
+  if (raw == null || raw === '') return [-1];
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [-1];
+
+    try {
+      raw = trimmed.startsWith('[') ? JSON.parse(trimmed) : trimmed.split(',');
+    } catch (_) {
+      throw new Error(
+        'Invalid Bambu AMS mapping — expected a JSON array or comma-separated slot list'
+      );
+    }
+  }
+
+  if (!Array.isArray(raw)) raw = [raw];
+  if (raw.length === 0) return [-1];
+
+  const mapping = raw.map(item => Number(item));
+  if (mapping.some(item => !Number.isInteger(item) || item < -1)) {
+    throw new Error(
+      'Invalid Bambu AMS mapping — slots must be integers greater than or equal to -1'
+    );
+  }
+
+  return mapping;
+}
+
+function externalAmsIdForPrinter(printer) {
+  const model = String(printer.model || '').toLowerCase();
+
+  // True dual-nozzle machines use virtual tray 254. Single-nozzle machines,
+  // including X1/P1/A1 and H2S, use virtual tray 255.
+  return ['h2d', 'h2d-pro', 'h2c', 'x2d'].includes(model) ? 254 : 255;
+}
+
+function decodeAmsMappingEntry(trayId, externalAmsId) {
+  if (trayId === -1) return { ams_id: externalAmsId, slot_id: 0 };
+  if (trayId === 254 || trayId === 255) return { ams_id: trayId, slot_id: 0 };
+
+  // AMS HT and other single-slot units use their AMS id directly.
+  if (trayId >= 128) return { ams_id: trayId, slot_id: 0 };
+
+  return {
+    ams_id: Math.floor(trayId / 4),
+    slot_id: trayId % 4,
+  };
+}
+
 // Uploads the G-code file to the printer via FTPS, then triggers printing via MQTT.
 // gcodeFullPath must be a resolved absolute path that already exists on disk.
-// options.amsSlot: -1 = external spool, 0–N = AMS slot, null = default (external)
+// options.amsSlot accepts a legacy single slot, JSON-array string, or array.
+// options.amsMapping is the preferred direct per-filament array.
 async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
-  const { amsSlot = null } = options;
+  const { amsSlot = null, amsMapping = null } = options;
   if (!printer.serial_number) {
     throw new Error(`Bambu printer ${printer.name} has no serial number configured`);
   }
 
   const onPrinterFilename = path.basename(gcodeFullPath);
   const ext = path.extname(onPrinterFilename).toLowerCase();
+  const normalizedAmsMapping = normalizeAmsMapping(amsMapping ?? amsSlot);
 
   // Bambu printers only support .3mf files via the project_file MQTT command.
   // The gcode_file command is non-functional on A-series (A1, A2, A2L) and
@@ -291,18 +347,23 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
   }
 
-  // ams_mapping format for LAN printing: a flat array where index = filament slot
-  // in the .3mf (0-based) and value = physical AMS tray ID (0-15).
-  // For single-color prints: [amsSlot] (one element).
-  // For external spool or no AMS: [] (empty).
-  // Ref: https://github.com/Doridian/OpenBambuAPI (issue #38 + mqtt.md)
-  const subtaskName = path.basename(onPrinterFilename, '.3mf');
-  const useAms      = amsSlot != null && amsSlot >= 0;
+  // Send one entry for every slicer filament. Current firmware requires an
+  // explicit external-spool table; an empty table raises HMS 07FF-8012.
+  const subtaskName   = path.basename(onPrinterFilename, '.3mf');
+  const externalAmsId = externalAmsIdForPrinter(printer);
+  const useAms        = normalizedAmsMapping.some(slot => slot >= 0 && slot < 254);
+  const flatMapping   = normalizedAmsMapping.map(slot =>
+    slot === 254 || slot === 255 ? -1 : slot
+  );
+  const mapping2      = normalizedAmsMapping.map(slot =>
+    decodeAmsMappingEntry(slot, externalAmsId)
+  );
   const printPayload = {
     sequence_id:     '0',
     command:         'project_file',
     param:           'Metadata/plate_1.gcode',
     subtask_name:    subtaskName,
+    file:            onPrinterFilename,
     url:             `ftp:///${onPrinterFilename}`,
     bed_type:        'auto',
     timelapse:       false,
@@ -311,7 +372,8 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
     vibration_cali:  true,
     layer_inspect:   false,
     use_ams:         useAms,
-    ams_mapping:     useAms ? [amsSlot] : [],
+    ams_mapping:     flatMapping,
+    ams_mapping2:    mapping2,
     profile_id:      '0',
     project_id:      '0',
     subtask_id:      '0',
