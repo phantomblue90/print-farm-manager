@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
+// Triggered after the workflow was present on main.
 const fs = require('fs');
 const path = require('path');
 
