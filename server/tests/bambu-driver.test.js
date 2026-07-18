@@ -207,7 +207,7 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
     expect(findPayload('project_file').url).toBe('ftp:///1234_part.3mf');
   });
 
-  test('AMS slot 0: sends both mapping formats', async () => {
+  test('X1C AMS slot 0: sends fixed five-entry legacy mapping', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
@@ -216,18 +216,18 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
 
     const p = findPayload('project_file');
     expect(p.use_ams).toBe(true);
-    expect(p.ams_mapping).toEqual([0]);
-    expect(p.ams_mapping2).toEqual([{ ams_id: 0, slot_id: 0 }]);
+    expect(p.ams_mapping).toEqual([0, -1, -1, -1, -1]);
+    expect(p.ams_mapping2).toBeUndefined();
   });
 
-  test('AMS slot 3: ams_mapping is [3]', async () => {
+  test('X1C AMS slot 3 is left-aligned and padded', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
 
     await bambu.uploadAndPrint(printer, '/tmp/1234_part.3mf', 'part.3mf', { amsSlot: 3 });
 
-    expect(findPayload('project_file').ams_mapping).toEqual([3]);
+    expect(findPayload('project_file').ams_mapping).toEqual([3, -1, -1, -1, -1]);
   });
 
   test('multi-filament mapping supports multiple AMS units', async () => {
@@ -244,12 +244,8 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
 
     const p = findPayload('project_file');
     expect(p.use_ams).toBe(true);
-    expect(p.ams_mapping).toEqual([0, 3, 6]);
-    expect(p.ams_mapping2).toEqual([
-      { ams_id: 0, slot_id: 0 },
-      { ams_id: 0, slot_id: 3 },
-      { ams_id: 1, slot_id: 2 },
-    ]);
+    expect(p.ams_mapping).toEqual([0, 3, 6, -1, -1]);
+    expect(p.ams_mapping2).toBeUndefined();
   });
 
   test('external spool (amsSlot: -1): sends firmware-compatible mapping', async () => {
@@ -261,8 +257,31 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
 
     const p = findPayload('project_file');
     expect(p.use_ams).toBe(false);
-    expect(p.ams_mapping).toEqual([-1]);
-    expect(p.ams_mapping2).toEqual([{ ams_id: 255, slot_id: 0 }]);
+    expect(p.ams_mapping).toEqual([-1, -1, -1, -1, -1]);
+    expect(p.ams_mapping2).toBeUndefined();
+  });
+
+  test('H2D uses project-length mapping and structured mapping2', async () => {
+    const printer = { ...nextPrinter(), model: 'h2d' };
+    bambu.getStatus(printer);
+    mockPublish.mockClear();
+
+    await bambu.uploadAndPrint(
+      printer,
+      '/tmp/1234_part.gcode.3mf',
+      'part.gcode.3mf',
+      { amsSlot: '[-1,0,128]' }
+    );
+
+    const p = findPayload('project_file');
+    expect(p.use_ams).toBe(true);
+    expect(p.ams_mapping).toEqual([254, 0, 128]);
+    expect(p.ams_mapping2).toEqual([
+      { ams_id: 254, slot_id: 254 },
+      { ams_id: 0, slot_id: 0 },
+      { ams_id: 128, slot_id: 0 },
+    ]);
+    expect(p.file).toBe('1234_part.gcode.3mf');
   });
 
   test('null amsSlot defaults to use_ams false (external spool)', async () => {

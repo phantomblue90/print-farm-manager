@@ -268,24 +268,64 @@ function normalizeAmsMapping(value) {
   return mapping;
 }
 
-function externalAmsIdForPrinter(printer) {
-  const model = String(printer.model || '').toLowerCase();
-
-  // True dual-nozzle machines use virtual tray 254. Single-nozzle machines,
-  // including X1/P1/A1 and H2S, use virtual tray 255.
-  return ['h2d', 'h2d-pro', 'h2c', 'x2d'].includes(model) ? 254 : 255;
+function normalizedModelName(printer) {
+  return String(printer.model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
 }
 
-function decodeAmsMappingEntry(trayId, externalAmsId) {
-  if (trayId === -1) return { ams_id: externalAmsId, slot_id: 0 };
-  if (trayId === 254 || trayId === 255) return { ams_id: trayId, slot_id: 0 };
+function isH2Family(printer) {
+  return new Set(['h2', 'h2c', 'h2d', 'h2dpro', 'h2s', 'x2d'])
+    .has(normalizedModelName(printer));
+}
 
-  // AMS HT and other single-slot units use their AMS id directly.
-  if (trayId >= 128) return { ams_id: trayId, slot_id: 0 };
+function buildAmsPayload(printer, requestedMapping) {
+  if (!isH2Family(printer)) {
+    // X1/P1/A1 firmware uses the historical fixed five-entry lookup table.
+    // The requested project filaments are left-aligned and unused positions
+    // are padded with -1. A one-entry [-1] table is incomplete and can leave
+    // the printer paused at the heatbed stage with HMS 07FF-8012.
+    if (requestedMapping.length > 5) {
+      throw new Error(
+        'Bambu X1/P1/A1 AMS mapping supports at most five project filament entries'
+      );
+    }
+
+    const amsMapping = Array.from(
+      { length: 5 },
+      (_, index) => index < requestedMapping.length ? requestedMapping[index] : -1
+    );
+
+    return {
+      use_ams: amsMapping.some(slot => slot >= 0 && slot < 254),
+      ams_mapping: amsMapping,
+    };
+  }
+
+  // H2-family firmware uses a project-length table plus a parallel structured
+  // table. The upload UI's -1 means "use the external spool" for a used
+  // filament, which H2 represents as virtual tray 254.
+  const amsMapping = requestedMapping.map(slot =>
+    slot === -1 || slot === 255 ? 254 : slot
+  );
+
+  const amsMapping2 = amsMapping.map(slot => {
+    if (slot === 254) return { ams_id: 254, slot_id: 254 };
+    if (slot < 0 || slot === 255) return { ams_id: 255, slot_id: 255 };
+    if (slot >= 128) return { ams_id: 128, slot_id: slot - 128 };
+
+    return {
+      ams_id: Math.floor(slot / 4),
+      slot_id: slot % 4,
+    };
+  });
 
   return {
-    ams_id: Math.floor(trayId / 4),
-    slot_id: trayId % 4,
+    // Current H2 firmware still performs mapping lookup for external-feed jobs.
+    use_ams: true,
+    ams_mapping: amsMapping,
+    ams_mapping2: amsMapping2,
   };
 }
 
@@ -302,6 +342,7 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
   const onPrinterFilename = path.basename(gcodeFullPath);
   const ext = path.extname(onPrinterFilename).toLowerCase();
   const normalizedAmsMapping = normalizeAmsMapping(amsMapping ?? amsSlot);
+  const isH2 = isH2Family(printer);
 
   // Bambu printers only support .3mf files via the project_file MQTT command.
   // The gcode_file command is non-functional on A-series (A1, A2, A2L) and
@@ -347,38 +388,32 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
   }
 
-  // Send one entry for every slicer filament. Current firmware requires an
-  // explicit external-spool table; an empty table raises HMS 07FF-8012.
-  const subtaskName   = path.basename(onPrinterFilename, '.3mf');
-  const externalAmsId = externalAmsIdForPrinter(printer);
-  const useAms        = normalizedAmsMapping.some(slot => slot >= 0 && slot < 254);
-  const flatMapping   = normalizedAmsMapping.map(slot =>
-    slot === 254 || slot === 255 ? -1 : slot
-  );
-  const mapping2      = normalizedAmsMapping.map(slot =>
-    decodeAmsMappingEntry(slot, externalAmsId)
-  );
+  // X1/P1/A1 and H2 firmware families require different mapping shapes.
+  const subtaskName = path.basename(_filename || onPrinterFilename, '.3mf');
+  const amsPayload = buildAmsPayload(printer, normalizedAmsMapping);
   const printPayload = {
     sequence_id:     '0',
     command:         'project_file',
     param:           'Metadata/plate_1.gcode',
     subtask_name:    subtaskName,
-    file:            onPrinterFilename,
     url:             `ftp:///${onPrinterFilename}`,
+    md5:             '',
     bed_type:        'auto',
     timelapse:       false,
     bed_leveling:    true,
     flow_cali:       false,
     vibration_cali:  true,
     layer_inspect:   false,
-    use_ams:         useAms,
-    ams_mapping:     flatMapping,
-    ams_mapping2:    mapping2,
+    ...amsPayload,
     profile_id:      '0',
     project_id:      '0',
     subtask_id:      '0',
     task_id:         '0',
   };
+
+  // H2 firmware expects the remote file field; X1/P1/A1 uses the legacy
+  // project_file shape and should not receive H2-only fields.
+  if (isH2) printPayload.file = onPrinterFilename;
 
   const mqttPayload = JSON.stringify({ print: printPayload });
   console.log(`[bambu] MQTT payload → ${printer.name}: ${mqttPayload}`);
