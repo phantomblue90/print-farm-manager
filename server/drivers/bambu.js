@@ -343,6 +343,8 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
   const ext = path.extname(onPrinterFilename).toLowerCase();
   const normalizedAmsMapping = normalizeAmsMapping(amsMapping ?? amsSlot);
   const isH2 = isH2Family(printer);
+  const isPreSlicedGcode3mf = onPrinterFilename.toLowerCase().endsWith('.gcode.3mf');
+  const useGcodeFileCommand = isPreSlicedGcode3mf && !isH2;
 
   // Bambu printers only support .3mf files via the project_file MQTT command.
   // The gcode_file command is non-functional on A-series (A1, A2, A2L) and
@@ -375,6 +377,11 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
       },
     });
 
+    if (useGcodeFileCommand) {
+      // X1/P1/A1 firmware expects pre-sliced .gcode.3mf files in /cache.
+      await ftpClient.ensureDir('/cache');
+    }
+
     await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
     console.log(`[bambu] Upload complete on ${printer.name}`);
   } finally {
@@ -386,6 +393,25 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
 
   if (!conn.connected) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
+  }
+
+  // X1/P1/A1 firmware starts pre-sliced .gcode.3mf files directly from the
+  // SD-card cache. Sending these containers through project_file can enter
+  // PREPARE and heat successfully but never advance into the actual G-code.
+  if (useGcodeFileCommand) {
+    const remotePath = `cache/${onPrinterFilename}`;
+    const printPayload = {
+      sequence_id: '0',
+      command: 'gcode_file',
+      param: remotePath,
+    };
+    const mqttPayload = JSON.stringify({ print: printPayload });
+    console.log(`[bambu] MQTT payload → ${printer.name}: ${mqttPayload}`);
+    conn.client.publish(`device/${printer.serial_number}/request`, mqttPayload, (err) => {
+      if (err) console.error(`[bambu] MQTT publish failed for ${printer.name}:`, err.message);
+      else console.log(`[bambu] MQTT publish confirmed for ${printer.name}`);
+    });
+    return;
   }
 
   // X1/P1/A1 and H2 firmware families require different mapping shapes.
@@ -430,8 +456,11 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
 async function deleteFile(printer, filename) {
   if (!filename) return;
 
-  // All Bambu uploads are .3mf files at the SD card root.
-  const remotePath = filename;
+  // X1/P1/A1 pre-sliced .gcode.3mf files live in /cache; H2/project
+  // containers remain at the SD-card root.
+  const remotePath = !isH2Family(printer) && filename.toLowerCase().endsWith('.gcode.3mf')
+    ? `cache/${filename}`
+    : filename;
 
   const ftpClient = new ftp.Client();
   ftpClient.ftp.verbose = !!process.env.DEBUG_BAMBU;

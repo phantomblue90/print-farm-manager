@@ -42,6 +42,7 @@ beforeEach(() => {
   mockFtpClient = {
     ftp:        { verbose: false },
     access:     jest.fn().mockResolvedValue(undefined),
+    ensureDir:  jest.fn().mockResolvedValue(undefined),
     uploadFrom: jest.fn().mockResolvedValue(undefined),
     close:      jest.fn(),
   };
@@ -187,6 +188,31 @@ describe('getStatus — FAILED: user cancel vs real failure', () => {
 // ─── uploadAndPrint — .3mf ────────────────────────────────────────────────────
 
 describe('uploadAndPrint — .3mf (project_file)', () => {
+  test('X1 pre-sliced .gcode.3mf uploads to cache and uses gcode_file', async () => {
+    const printer = nextPrinter();
+    bambu.getStatus(printer);
+    mockPublish.mockClear();
+
+    await bambu.uploadAndPrint(
+      printer,
+      '/tmp/1234_part.gcode.3mf',
+      'part.gcode.3mf',
+      { amsSlot: -1 }
+    );
+
+    expect(mockFtpClient.ensureDir).toHaveBeenCalledWith('/cache');
+    expect(mockFtpClient.uploadFrom).toHaveBeenCalledWith(
+      '/tmp/1234_part.gcode.3mf',
+      '1234_part.gcode.3mf'
+    );
+    expect(findPayload('gcode_file')).toEqual({
+      sequence_id: '0',
+      command: 'gcode_file',
+      param: 'cache/1234_part.gcode.3mf',
+    });
+    expect(findPayload('project_file')).toBeNull();
+  });
+
   test('uses project_file MQTT command', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
