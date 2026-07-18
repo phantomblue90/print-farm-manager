@@ -272,7 +272,10 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
       user:    'bblp',
       password: printer.api_key,
       secure:  'implicit',
-      secureOptions: { rejectUnauthorized: false },
+      secureOptions: {
+	rejectUnauthorized: false,
+	host: printer.ip,
+      },
     });
 
     await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
