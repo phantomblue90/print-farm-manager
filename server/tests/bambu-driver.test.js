@@ -188,7 +188,7 @@ describe('getStatus — FAILED: user cancel vs real failure', () => {
 // ─── uploadAndPrint — .3mf ────────────────────────────────────────────────────
 
 describe('uploadAndPrint — .3mf (project_file)', () => {
-  test('X1 pre-sliced .gcode.3mf uploads to cache and uses gcode_file', async () => {
+  test('X1 pre-sliced .gcode.3mf remains a project_file container', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
@@ -200,17 +200,16 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
       { amsSlot: -1 }
     );
 
-    expect(mockFtpClient.ensureDir).toHaveBeenCalledWith('/cache');
+    expect(mockFtpClient.ensureDir).not.toHaveBeenCalled();
     expect(mockFtpClient.uploadFrom).toHaveBeenCalledWith(
       '/tmp/1234_part.gcode.3mf',
       '1234_part.gcode.3mf'
     );
-    expect(findPayload('gcode_file')).toEqual({
-      sequence_id: '0',
-      command: 'gcode_file',
-      param: 'cache/1234_part.gcode.3mf',
-    });
-    expect(findPayload('project_file')).toBeNull();
+    const payload = findPayload('project_file');
+    expect(payload).not.toBeNull();
+    expect(payload.param).toBe('Metadata/plate_1.gcode');
+    expect(payload.ams_mapping).toEqual([-1, -1, -1, -1, -1]);
+    expect(findPayload('gcode_file')).toBeNull();
   });
 
   test('uses project_file MQTT command', async () => {

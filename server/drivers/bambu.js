@@ -77,11 +77,45 @@ function getOrCreateConnection(printer) {
       // All status fields arrive under data.print.
       // Merge — Bambu sends partial updates, not a full snapshot each time.
       if (data.print) {
-        conn.latestPrint = { ...conn.latestPrint, ...data.print };
-      }
-    } catch (_) {}
-  });
+        const update = data.print;
+        const previous = conn.latestPrint || {};
+        conn.latestPrint = { ...previous, ...update };
 
+        // Surface command acknowledgements and meaningful state transitions.
+        // Without this, the scheduler only sees FAILED/PAUSE and hides the
+        // firmware's result/reason/error details that explain a rejected job.
+        const has = key => Object.prototype.hasOwnProperty.call(update, key);
+        const commandReply = has('command') && (has('result') || has('reason') || has('code'));
+        const enteredFailure =
+          ['FAILED', 'PAUSE'].includes(update.gcode_state) &&
+          update.gcode_state !== previous.gcode_state;
+        const printErrorChanged =
+          has('print_error') &&
+          Number(update.print_error) !== 0 &&
+          update.print_error !== previous.print_error;
+        const stageChanged =
+          has('mc_print_stage') &&
+          update.mc_print_stage !== previous.mc_print_stage;
+
+        if (commandReply || enteredFailure || printErrorChanged || stageChanged) {
+          const diagnostic = {};
+          for (const key of [
+            'sequence_id', 'command', 'result', 'reason', 'code', 'error_code',
+            'print_error', 'gcode_state', 'mc_print_stage', 'mc_percent',
+            'bed_temper', 'bed_target_temper', 'nozzle_temper',
+            'nozzle_target_temper', 'subtask_name',
+          ]) {
+            if (has(key)) diagnostic[key] = update[key];
+          }
+          console.log(`[bambu] MQTT report ← ${printer.name}: ${JSON.stringify(diagnostic)}`);
+        }
+      }
+    } catch (err) {
+      if (process.env.DEBUG_BAMBU) {
+        console.warn(`[bambu] ${printer.name} invalid MQTT report:`, err?.message || err);
+      }
+    }
+  });
   client.on('reconnect', () => {
     conn.connected = false;
     console.log(`[bambu] ${printer.name} reconnecting…`);
@@ -343,8 +377,6 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
   const ext = path.extname(onPrinterFilename).toLowerCase();
   const normalizedAmsMapping = normalizeAmsMapping(amsMapping ?? amsSlot);
   const isH2 = isH2Family(printer);
-  const isPreSlicedGcode3mf = onPrinterFilename.toLowerCase().endsWith('.gcode.3mf');
-  const useGcodeFileCommand = isPreSlicedGcode3mf && !isH2;
 
   // Bambu printers only support .3mf files via the project_file MQTT command.
   // The gcode_file command is non-functional on A-series (A1, A2, A2L) and
@@ -377,11 +409,6 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
       },
     });
 
-    if (useGcodeFileCommand) {
-      // X1/P1/A1 firmware expects pre-sliced .gcode.3mf files in /cache.
-      await ftpClient.ensureDir('/cache');
-    }
-
     await ftpClient.uploadFrom(gcodeFullPath, onPrinterFilename);
     console.log(`[bambu] Upload complete on ${printer.name}`);
   } finally {
@@ -393,25 +420,6 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
 
   if (!conn.connected) {
     throw new Error(`Bambu printer ${printer.name} MQTT not connected — cannot trigger print`);
-  }
-
-  // X1/P1/A1 firmware starts pre-sliced .gcode.3mf files directly from the
-  // SD-card cache. Sending these containers through project_file can enter
-  // PREPARE and heat successfully but never advance into the actual G-code.
-  if (useGcodeFileCommand) {
-    const remotePath = `cache/${onPrinterFilename}`;
-    const printPayload = {
-      sequence_id: '0',
-      command: 'gcode_file',
-      param: remotePath,
-    };
-    const mqttPayload = JSON.stringify({ print: printPayload });
-    console.log(`[bambu] MQTT payload → ${printer.name}: ${mqttPayload}`);
-    conn.client.publish(`device/${printer.serial_number}/request`, mqttPayload, (err) => {
-      if (err) console.error(`[bambu] MQTT publish failed for ${printer.name}:`, err.message);
-      else console.log(`[bambu] MQTT publish confirmed for ${printer.name}`);
-    });
-    return;
   }
 
   // X1/P1/A1 and H2 firmware families require different mapping shapes.
