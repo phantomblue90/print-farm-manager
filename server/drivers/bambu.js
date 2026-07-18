@@ -464,11 +464,8 @@ async function uploadAndPrint(printer, gcodeFullPath, _filename, options = {}) {
 async function deleteFile(printer, filename) {
   if (!filename) return;
 
-  // X1/P1/A1 pre-sliced .gcode.3mf files live in /cache; H2/project
-  // containers remain at the SD-card root.
-  const remotePath = !isH2Family(printer) && filename.toLowerCase().endsWith('.gcode.3mf')
-    ? `cache/${filename}`
-    : filename;
+  // All 3MF project containers are uploaded to the SD-card root.
+  const remotePath = filename;
 
   const ftpClient = new ftp.Client();
   ftpClient.ftp.verbose = !!process.env.DEBUG_BAMBU;
