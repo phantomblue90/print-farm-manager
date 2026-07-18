@@ -1,16 +1,16 @@
 name: Apply Bambu AMS fix
 
 on:
-  issues:
+  pull_request:
     types: [opened]
 
 permissions:
   contents: write
-  issues: write
+  pull-requests: write
 
 jobs:
   apply:
-    if: github.event.issue.title == 'Run Bambu AMS migration'
+    if: github.event.pull_request.title == 'Run Bambu AMS migration'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -53,8 +53,8 @@ jobs:
           git commit -m "fix(bambu): support external and multi-filament AMS mappings"
           git push origin HEAD:main
 
-      - name: Close trigger issue
+      - name: Close trigger pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: gh issue close "$ISSUE_NUMBER" --comment "Bambu AMS migration applied and validated."
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr close "$PR_NUMBER" --comment "Bambu AMS migration applied and validated."
