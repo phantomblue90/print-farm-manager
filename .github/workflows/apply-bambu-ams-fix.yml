@@ -2,7 +2,7 @@ name: Apply Bambu AMS fix
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
@@ -28,6 +28,22 @@ jobs:
       - name: Apply source changes
         run: node scripts/apply-bambu-ams-fix.js
 
+      - name: Package patched source
+        run: |
+          tar -czf /tmp/bambu-ams-patched-source.tar.gz \
+            server/drivers/bambu.js \
+            server/routes/gcodes.js \
+            client/src/pages/Projects.jsx \
+            server/tests/bambu-driver.test.js \
+            server/tests/gcodes.test.js
+
+      - name: Upload patched source
+        uses: actions/upload-artifact@v4
+        with:
+          name: bambu-ams-patched-source
+          path: /tmp/bambu-ams-patched-source.tar.gz
+          retention-days: 1
+
       - name: Install dependencies
         run: npm ci
 
@@ -35,7 +51,19 @@ jobs:
         run: npm test -- --runInBand
 
       - name: Build client
-        run: npm run build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee /tmp/client-build.log
+
+      - name: Upload client build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bambu-ams-client-build-log
+          path: /tmp/client-build.log
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Commit tested fix and remove migration files
         run: |
