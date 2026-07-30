@@ -208,7 +208,7 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
     const payload = findPayload('project_file');
     expect(payload).not.toBeNull();
     expect(payload.param).toBe('Metadata/plate_1.gcode');
-    expect(payload.ams_mapping).toEqual([-1, -1, -1, -1, -1]);
+    expect(payload.ams_mapping).toBe('');
     expect(findPayload('gcode_file')).toBeNull();
   });
 
@@ -232,7 +232,7 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
     expect(findPayload('project_file').url).toBe('ftp:///1234_part.3mf');
   });
 
-  test('X1C AMS slot 0: sends fixed five-entry legacy mapping', async () => {
+  test('X1C AMS slot 0: sends fixed five-entry legacy mapping, right-aligned', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
@@ -241,18 +241,18 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
 
     const p = findPayload('project_file');
     expect(p.use_ams).toBe(true);
-    expect(p.ams_mapping).toEqual([0, -1, -1, -1, -1]);
+    expect(p.ams_mapping).toEqual([-1, -1, -1, -1, 0]);
     expect(p.ams_mapping2).toBeUndefined();
   });
 
-  test('X1C AMS slot 3 is left-aligned and padded', async () => {
+  test('X1C AMS slot 3 is right-aligned and padded', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
 
     await bambu.uploadAndPrint(printer, '/tmp/1234_part.3mf', 'part.3mf', { amsSlot: 3 });
 
-    expect(findPayload('project_file').ams_mapping).toEqual([3, -1, -1, -1, -1]);
+    expect(findPayload('project_file').ams_mapping).toEqual([-1, -1, -1, -1, 3]);
   });
 
   test('multi-filament mapping supports multiple AMS units', async () => {
@@ -269,11 +269,11 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
 
     const p = findPayload('project_file');
     expect(p.use_ams).toBe(true);
-    expect(p.ams_mapping).toEqual([0, 3, 6, -1, -1]);
+    expect(p.ams_mapping).toEqual([-1, -1, 0, 3, 6]);
     expect(p.ams_mapping2).toBeUndefined();
   });
 
-  test('external spool (amsSlot: -1): sends firmware-compatible mapping', async () => {
+  test('external spool (amsSlot: -1): no-AMS printers get the documented empty mapping', async () => {
     const printer = nextPrinter();
     bambu.getStatus(printer);
     mockPublish.mockClear();
@@ -282,7 +282,7 @@ describe('uploadAndPrint — .3mf (project_file)', () => {
 
     const p = findPayload('project_file');
     expect(p.use_ams).toBe(false);
-    expect(p.ams_mapping).toEqual([-1, -1, -1, -1, -1]);
+    expect(p.ams_mapping).toBe('');
     expect(p.ams_mapping2).toBeUndefined();
   });
 

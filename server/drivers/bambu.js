@@ -316,25 +316,33 @@ function isH2Family(printer) {
 
 function buildAmsPayload(printer, requestedMapping) {
   if (!isH2Family(printer)) {
-    // X1/P1/A1 firmware uses the historical fixed five-entry lookup table.
-    // The requested project filaments are left-aligned and unused positions
-    // are padded with -1. A one-entry [-1] table is incomplete and can leave
-    // the printer paused at the heatbed stage with HMS 07FF-8012.
+    const usesAms = requestedMapping.some(slot => slot >= 0 && slot < 254);
+
+    // Plain external-spool print, no AMS slot requested. Per OpenBambuAPI's
+    // documented project_file base case, ams_mapping is the empty string and
+    // use_ams is false: sending a padded array of -1 here (even a correctly
+    // sized one) makes the firmware attempt and fail an AMS mapping-table
+    // lookup, pausing at the heatbed stage with HMS 07FF-8012 / 0700-8012
+    // ("failed to get AMS mapping table").
+    if (!usesAms) {
+      return { use_ams: false, ams_mapping: '' };
+    }
+
+    // X1/P1/A1 firmware uses a fixed five-entry lookup table. Per OpenBambuAPI,
+    // entries are right-aligned: real slot values fill from the end of the
+    // array, and unused leading positions are padded with -1.
     if (requestedMapping.length > 5) {
       throw new Error(
         'Bambu X1/P1/A1 AMS mapping supports at most five project filament entries'
       );
     }
 
-    const amsMapping = Array.from(
-      { length: 5 },
-      (_, index) => index < requestedMapping.length ? requestedMapping[index] : -1
-    );
+    const amsMapping = [
+      ...Array(5 - requestedMapping.length).fill(-1),
+      ...requestedMapping,
+    ];
 
-    return {
-      use_ams: amsMapping.some(slot => slot >= 0 && slot < 254),
-      ams_mapping: amsMapping,
-    };
+    return { use_ams: true, ams_mapping: amsMapping };
   }
 
   // H2-family firmware uses a project-length table plus a parallel structured

@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-07-30: Bambu X1C AMS mapping table failure on plain external-spool prints (HMS 07FF-8012 / 0700-8012)
+
+Joel hit "failed to get AMS mapping table, please select Resume to retry" on a Bambu X1C for a single-filament external-spool print, both immediately (HMS `07FF-8012`) and again on retry (HMS `0700-8012`), with the printer stalling at the heatbed-preheat stage and progress frozen at 0 percent. The same `.3mf` file printed with no issue when copied to the SD card and started from the printer's own screen, which ruled out the gcode/project file and pointed at the MQTT `project_file` command our driver sends.
+
+The previous fix (2026-07-18, "use X1-compatible five-entry AMS mapping") assumed X1/P1/A1 firmware always wants a five-element `ams_mapping` array, left-aligned, even for plain external-spool prints with no AMS slot requested at all: it sent `ams_mapping: [-1,-1,-1,-1,-1]` unconditionally. Checking OpenBambuAPI's `mqtt.md` (the protocol reference already cited in this driver's header comment) shows that assumption was wrong on both counts: the documented base case for a non-AMS print is `use_ams: false` with `ams_mapping: ""` (an empty string, not an array), and when AMS slots are actually requested the five-element array is right-aligned (real values at the end, `-1` padding at the start), not left-aligned. Sending any array at all for a no-AMS print makes the firmware attempt and fail an AMS mapping-table lookup, which is exactly the failure Joel reproduced.
+
+`buildAmsPayload()` now branches on whether any real AMS slot was requested: none requested sends the documented `{ use_ams: false, ams_mapping: '' }`; one or more requested sends a right-aligned five-element array. H2-family firmware (which already used a different, project-length mapping shape) is unchanged.
+
+Implemented and unit-tested against the corrected protocol shape; not yet re-validated against Joel's X1C hardware after this specific change (the prior five-entry fix was live and failing on his printer at the time of writing).
+
+### Changes
+- `server/drivers/bambu.js`: `buildAmsPayload()`, non-H2 (X1/P1/A1) branch now returns `{ use_ams: false, ams_mapping: '' }` when no AMS slot is requested, and right-aligns the five-element array (padding at the start) when one is.
+- `server/tests/bambu-driver.test.js`: updated AMS mapping assertions to the empty-string no-AMS shape and right-aligned padding.
+- `docs/multi-brand.md`: new "Bambu `project_file` AMS mapping shape" subsection documenting both payload shapes and the HMS failure they prevent.
+
 ## 2026-07-12: dispatch_batch_size means concurrent uploads, not printers considered per pass
 
 Joel batch-confirmed a stack of held printers via Fleet's "Set Ready (N)" button with `dispatch_batch_size` set to 5, and instead of 5 uploads running at once he saw 3 or 4. He walked through it precisely: some of the held printers had the wrong material or color loaded for the part they'd match, so the scheduler correctly found "no candidate" for them and moved on without creating a job, exactly as designed. The bug was in what happened next. `_sweepInBatches` chunked the confirmed printers into fixed slices of `dispatch_batch_size` and processed one slice at a time, waiting for the whole slice to settle before moving to the next. If a slice of 5 had only 1 real candidate, only 1 upload ran, and the scheduler moved on to the *next fixed slice of 5* instead of reaching further into the queue to make up the difference. Joel's framing was the fix: "if I have five set as my limit, then five should be uploading at once, not five being contacted at once with one of the five being able to print."

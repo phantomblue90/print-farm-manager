@@ -59,6 +59,15 @@ Both brands map their native states to a shared internal set. The rest of the sy
 
 Reference: ha-bambulab `pybambu/models.py` cancel handling. Without this, a Bambu stopped from its own screen shows a persistent false ERROR in the farm that decommission/recommission cannot clear (status always comes from the live MQTT report, not the DB).
 
+### Bambu `project_file` AMS mapping shape
+
+Per OpenBambuAPI's `mqtt.md`, the `project_file` MQTT command's AMS fields have two distinct shapes on X1/P1/A1 firmware:
+
+- **No AMS slot requested** (plain external-spool print): `use_ams: false`, `ams_mapping: ""` (empty string, not an array). Sending a padded array here, even one filled entirely with `-1`, makes the firmware attempt an AMS mapping-table lookup that fails with HMS `07FF-8012` / `0700-8012` ("failed to get AMS mapping table"), pausing the print at the heatbed stage.
+- **AMS slot(s) requested**: `use_ams: true`, `ams_mapping` is a fixed five-element array, **right-aligned**: real slot values fill from the end of the array, unused leading positions are padded with `-1` (e.g. one filament at slot 2: `[-1, -1, -1, -1, 2]`).
+
+`server/drivers/bambu.js` `buildAmsPayload()` implements both shapes for non-H2 (X1/P1/A1) printers. H2-family firmware is unaffected: it always sends `use_ams: true` with a project-length `ams_mapping` plus the structured `ams_mapping2`.
+
 ---
 
 ## Connector Families
